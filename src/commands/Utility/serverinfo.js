@@ -21,7 +21,7 @@ export default {
                 },
                 { 
                     name: '💻 Developer', 
-                    value: '<@834169622533308426>', // Dit is de vermelding voor <@1248914495389040683>
+                    value: '@appie0680', // Dit is de vermelding voor <@1248914495389040683>
                     inline: true 
                 },
                 { 
