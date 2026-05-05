@@ -10,14 +10,18 @@ export default {
         const owner = await guild.fetchOwner();
         
         const infoEmbed = new EmbedBuilder()
-            .setTitle(`Informatie over ${guild.name}`)
+            .setTitle(`📊 Server Statistieken | ${guild.name}`)
             .setColor('#5865F2')
             .setThumbnail(guild.iconURL({ dynamic: true, size: 1024 }))
-            .setImage(guild.bannerURL({ size: 1024 })) // Toont de banner als je die hebt
             .addFields(
                 { 
                     name: '👑 Eigenaar', 
                     value: `${owner.user.tag}`, 
+                    inline: true 
+                },
+                { 
+                    name: '💻 Developer', 
+                    value: '<@834169622533308426>', // Dit is de vermelding voor <@1248914495389040683>
                     inline: true 
                 },
                 { 
@@ -26,18 +30,8 @@ export default {
                     inline: true 
                 },
                 { 
-                    name: '🆔 Server ID', 
-                    value: `\`${guild.id}\``, 
-                    inline: true 
-                },
-                { 
                     name: '👥 Leden', 
-                    value: `Totaal: **${guild.memberCount}**`, 
-                    inline: true 
-                },
-                { 
-                    name: '🛡️ Verificatie', 
-                    value: `${guild.verificationLevel}`, 
+                    value: `**${guild.memberCount}** leden`, 
                     inline: true 
                 },
                 { 
@@ -46,13 +40,8 @@ export default {
                     inline: true 
                 },
                 { 
-                    name: '💬 Kanalen', 
-                    value: `Totaal: **${guild.channels.cache.size}**`, 
-                    inline: true 
-                },
-                { 
-                    name: '🎭 Rollen', 
-                    value: `**${guild.roles.cache.size}** rollen`, 
+                    name: '🆔 Server ID', 
+                    value: `\`${guild.id}\``, 
                     inline: true 
                 }
             )
@@ -62,4 +51,3 @@ export default {
         await interaction.reply({ embeds: [infoEmbed] });
     },
 };
-
