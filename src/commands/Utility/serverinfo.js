@@ -1,76 +1,65 @@
-import { SlashCommandBuilder } from 'discord.js';
-import { createEmbed } from '../../utils/embeds.js';
-import { logger } from '../../utils/logger.js';
-import { handleInteractionError } from '../../utils/errorHandler.js';
-import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 
 export default {
     data: new SlashCommandBuilder()
-    .setName("serverinfo")
-    .setDescription("Get detailed information about the server"),
+        .setName('serverinfo')
+        .setDescription('Toont uitgebreide informatie over NexSpace'),
 
-  async execute(interaction) {
-    try {
-      const deferSuccess = await InteractionHelper.safeDefer(interaction);
-      if (!deferSuccess) {
-        logger.warn(`ServerInfo interaction defer failed`, {
-          userId: interaction.user.id,
-          guildId: interaction.guildId,
-          commandName: 'serverinfo'
-        });
-        return;
-      }
+    async execute(interaction) {
+        const { guild } = interaction;
+        const owner = await guild.fetchOwner();
+        
+        const infoEmbed = new EmbedBuilder()
+            .setTitle(`Informatie over ${guild.name}`)
+            .setColor('#5865F2')
+            .setThumbnail(guild.iconURL({ dynamic: true, size: 1024 }))
+            .setImage(guild.bannerURL({ size: 1024 })) // Toont de banner als je die hebt
+            .addFields(
+                { 
+                    name: '👑 Eigenaar', 
+                    value: `${owner.user.tag}`, 
+                    inline: true 
+                },
+                { 
+                    name: '📅 Gemaakt op', 
+                    value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:R>`, 
+                    inline: true 
+                },
+                { 
+                    name: '🆔 Server ID', 
+                    value: `\`${guild.id}\``, 
+                    inline: true 
+                },
+                { 
+                    name: '👥 Leden', 
+                    value: `Totaal: **${guild.memberCount}**`, 
+                    inline: true 
+                },
+                { 
+                    name: '🛡️ Verificatie', 
+                    value: `${guild.verificationLevel}`, 
+                    inline: true 
+                },
+                { 
+                    name: '💎 Boosts', 
+                    value: `Level ${guild.premiumTier} (${guild.premiumSubscriptionCount} boosts)`, 
+                    inline: true 
+                },
+                { 
+                    name: '💬 Kanalen', 
+                    value: `Totaal: **${guild.channels.cache.size}**`, 
+                    inline: true 
+                },
+                { 
+                    name: '🎭 Rollen', 
+                    value: `**${guild.roles.cache.size}** rollen`, 
+                    inline: true 
+                }
+            )
+            .setFooter({ text: `NexSpace | Gevraagd door ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
+            .setTimestamp();
 
-      const guild = interaction.guild;
-      const owner = await guild.fetchOwner();
-
-      const createdTimestamp = Math.floor(guild.createdAt.getTime() / 1000);
-
-      const embed = createEmbed({ title: `🏰 Server Info: ${guild.name}`, description: `Server ID: ${guild.id}` })
-        .setThumbnail(guild.iconURL({ size: 256 }))
-        .addFields(
-          { name: "Owner", value: owner.user.tag, inline: true },
-          { name: "Members", value: `${guild.memberCount}`, inline: true },
-          {
-            name: "Channels",
-            value: `${guild.channels.cache.size}`,
-            inline: true,
-          },
-          { name: "Roles", value: `${guild.roles.cache.size}`, inline: true },
-          {
-            name: "Boosts",
-            value: `Level ${guild.premiumTier} (${guild.premiumSubscriptionCount})`,
-            inline: true,
-          },
-          {
-            name: "Creation Date",
-            value: `<t:${createdTimestamp}:R>`,
-            inline: true,
-          },
-        );
-
-      await InteractionHelper.safeEditReply(interaction, { embeds: [embed] });
-      logger.info(`ServerInfo command executed`, {
-        userId: interaction.user.id,
-        guildId: guild.id,
-        guildName: guild.name,
-        memberCount: guild.memberCount
-      });
-    } catch (error) {
-      logger.error(`ServerInfo command execution failed`, {
-        error: error.message,
-        stack: error.stack,
-        userId: interaction.user.id,
-        guildId: interaction.guildId,
-        commandName: 'serverinfo'
-      });
-      await handleInteractionError(interaction, error, {
-        commandName: 'serverinfo',
-        source: 'serverinfo_command'
-      });
-    }
-  },
+        await interaction.reply({ embeds: [infoEmbed] });
+    },
 };
-
-
 
