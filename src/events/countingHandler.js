@@ -1,62 +1,66 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import pg from 'pg';
 
-// Instellingen
-const COUNTING_CHANNEL_NAME = 'tellen'; // De naam van je kanaal
+const { Client } = pg;
+const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+db.connect();
 
-let currentCount = 0;
-let lastUserId = null;
+const CONFIG = {
+    CHANNEL_NAME: 'tellen',
+    COLOR_SUCCESS: '#00FFFF', // Neon Cyaan
+    COLOR_ERROR: '#FF0055'    // Fel Rood
+};
 
 export default {
     name: 'messageCreate',
-    once: false,
     async execute(message) {
-        // Stop als de bot zelf praat of als het niet in het juiste kanaal is
-        if (message.author.bot) return;
-        if (message.channel.name !== COUNTING_CHANNEL_NAME) return;
+        if (message.author.bot || message.channel.name !== CONFIG.CHANNEL_NAME) return;
 
-        const content = message.content.trim();
-        const number = parseInt(content);
-
-        // Check of het bericht alleen een getal is
-        if (isNaN(number) || !/^\d+$/.test(content)) {
-            // Optioneel: verwijder berichten die geen getallen zijn om het kanaal schoon te houden
-            // await message.delete(); 
-            return;
+        // Maak tabel als die niet bestaat
+        await db.query(`CREATE TABLE IF NOT EXISTS counting (id SERIAL PRIMARY KEY, current_count INTEGER, last_user TEXT)`);
+        
+        // Haal huidige stand op
+        let res = await db.query(`SELECT * FROM counting WHERE id = 1`);
+        if (res.rows.length === 0) {
+            await db.query(`INSERT INTO counting (id, current_count, last_user) VALUES (1, 0, 'none')`);
+            res = await db.query(`SELECT * FROM counting WHERE id = 1`);
         }
 
-        // 1. Check of het getal wel de volgende in de rij is
-        if (number !== currentCount + 1) {
-            currentCount = 0;
-            lastUserId = null;
-            
-            const errorEmbed = new EmbedBuilder()
-                .setTitle('❌ Oei, foutje!')
-                .setDescription(`Jammer ${message.author}! **${number}** was niet het juiste getal. We moesten naar de **${currentCount + 1}**.\n\nWe beginnen weer bij **1**!`)
-                .setColor('#FF0000');
-            
-            await message.reply({ embeds: [errorEmbed] });
-            await message.react('⚠️');
-            return;
-        }
+        const currentCount = res.rows[0].current_count;
+        const lastUser = res.rows[0].last_user;
+        const userInput = parseInt(message.content);
 
-        // 2. Check of dezelfde persoon niet twee keer achter elkaar typt
-        if (message.author.id === lastUserId) {
-            currentCount = 0;
-            lastUserId = null;
+        // Als het geen getal is, negeer het bericht
+        if (isNaN(userInput)) return;
 
-            const doubleEmbed = new EmbedBuilder()
-                .setTitle('🚫 Niet valsspelen!')
-                .setDescription(`Je mag niet twee keer achter elkaar tellen, ${message.author}!\n\nWe beginnen weer bij **1**!`)
-                .setColor('#FF0000');
-
-            await message.reply({ embeds: [doubleEmbed] });
+        // 1. Check of dezelfde persoon weer telt
+        if (message.author.id === lastUser) {
             await message.react('❌');
+            await resetCount(message, "Je mag niet twee keer achter elkaar tellen!");
             return;
         }
 
-        // Als alles goed is:
-        currentCount = number;
-        lastUserId = message.author.id;
+        // 2. Check of het getal klopt
+        if (userInput !== currentCount + 1) {
+            await message.react('⚠️');
+            await resetCount(message, `${userInput} was niet het juiste getal. We waren bij ${currentCount}!`);
+            return;
+        }
+
+        // 3. Succes! Update database
+        await db.query(`UPDATE counting SET current_count = current_count + 1, last_user = $1 WHERE id = 1`, [message.author.id]);
         await message.react('✅');
-    },
+    }
 };
+
+async function resetCount(message, reason) {
+    await db.query(`UPDATE counting SET current_count = 0, last_user = 'none' WHERE id = 1`);
+    
+    const embed = new EmbedBuilder()
+        .setTitle('🚫 Oei, foutje!')
+        .setDescription(`${reason}\n\nWe beginnen weer bij **1**!`)
+        .setColor(CONFIG.COLOR_ERROR)
+        .setFooter({ text: 'NexSpace Counting Engine' });
+
+    await message.reply({ embeds: [embed] });
+}
