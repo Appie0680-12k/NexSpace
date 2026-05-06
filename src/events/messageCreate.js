@@ -18,8 +18,6 @@ export default {
     try {
       
       if (message.author.bot || !message.guild) return;
-
-      await handleLeveling(message, client);
     } catch (error) {
       logger.error('Error in messageCreate event:', error);
     }
