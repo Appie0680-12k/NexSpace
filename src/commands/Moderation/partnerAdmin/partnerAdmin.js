@@ -12,12 +12,15 @@ export default {
 
     async execute(interaction) {
         if (interaction.options.getSubcommand() === 'update') {
-            await interaction.reply({ content: '⏳ Bezig met het uitlezen van het kanaal en updaten van de database... Dit kan even duren.', ephemeral: true });
+            await interaction.reply({ content: '⏳ Bezig met scannen... Dit kan even duren.', ephemeral: true });
             
-            // Dit roept de functie aan die in partnerTracker.js staat
-            await fullChannelScan(interaction.guild);
-            
-            return interaction.editReply('✅ Klaar! Het kanaal is volledig uitgelezen en het leaderboard is bijgewerkt.');
+            try {
+                await fullChannelScan(interaction.guild);
+                return interaction.editReply('✅ Klaar! De geschiedenis is ingeladen en het leaderboard is bijgewerkt.');
+            } catch (error) {
+                console.error(error);
+                return interaction.editReply('❌ Er ging iets mis bij het scannen.');
+            }
         }
     },
 };
