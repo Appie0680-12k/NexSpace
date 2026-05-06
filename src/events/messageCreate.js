@@ -4,11 +4,10 @@ export default {
     name: Events.MessageCreate,
     async execute(message, client) {
         try {
-            // Basis checks
             if (message.author.bot || !message.guild) return;
 
-            // Dit zorgt ervoor dat normale commando's (!help, etc) blijven werken
-            const prefix = '!'; // Of jouw prefix
+            // Dit zorgt dat je ! commands en slash commands blijven werken
+            const prefix = '!'; 
             if (!message.content.startsWith(prefix)) return;
 
             const args = message.content.slice(prefix.length).trim().split(/ +/);
