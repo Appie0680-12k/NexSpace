@@ -3,81 +3,54 @@ import pg from 'pg';
 
 const { Client } = pg;
 
-const SETTINGS = {
-    LEVEL_UP_CHANNEL: 'level-up',
-    WORDS_PER_LEVEL: 150,
-    COLOR: '#00FFFF'
-};
-
-const ELITE_ROLES = {
-    1: 'Lvl 1', 5: 'Lvl 5', 10: 'Lvl 10', 15: 'Lvl 15', 20: 'Lvl 20', 30: 'Lvl 30', 50: 'Lvl 50'
-};
-
 export default {
     name: 'messageCreate',
     async execute(message) {
         if (message.author.bot || !message.guild) return;
 
-        const db = new Client({ 
-            connectionString: process.env.DATABASE_URL, 
-            ssl: { rejectUnauthorized: false } 
-        });
+        // Admin Reset
+        if (message.content === '!nex level-reset') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+            const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+            await db.connect();
+            await db.query('DROP TABLE IF EXISTS elite_levels');
+            await db.query('CREATE TABLE elite_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
+            await db.end();
+            return message.reply('🧹 Systeem gereset.');
+        }
 
+        const words = message.content.trim().split(/\s+/).length;
+        if (words < 2) return;
+
+        const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+        
         try {
             await db.connect();
-
-            // Admin Reset
-            if (message.content === '!nex level-reset') {
-                if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-                await db.query('DROP TABLE IF EXISTS elite_levels');
-                await db.query('CREATE TABLE elite_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
-                await db.end();
-                return message.reply('🧹 **NexSpace Engine:** Database gereset naar 0!');
-            }
-
             await db.query('CREATE TABLE IF NOT EXISTS elite_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
-
-            const words = message.content.trim().split(/\s+/).length;
-            if (words < 2) {
-                await db.end();
-                return;
-            }
-
+            
             const res = await db.query(`
                 INSERT INTO elite_levels (user_id, words) VALUES ($1, $2)
                 ON CONFLICT (user_id) DO UPDATE SET words = elite_levels.words + $2
                 RETURNING words`, [message.author.id, words]);
 
-            const totalWords = res.rows[0].words;
-            const level = Math.floor(totalWords / SETTINGS.WORDS_PER_LEVEL);
-            const oldLevel = Math.floor((totalWords - words) / SETTINGS.WORDS_PER_LEVEL);
+            const total = res.rows[0].words;
+            const level = Math.floor(total / 150);
+            const oldLevel = Math.floor((total - words) / 150);
 
             if (level > oldLevel && level > 0) {
-                const logChannel = message.guild.channels.cache.find(c => c.name === SETTINGS.LEVEL_UP_CHANNEL);
-                if (logChannel) {
-                    let extra = "";
-                    if (ELITE_ROLES[level]) {
-                        const role = message.guild.roles.cache.find(r => r.name === ELITE_ROLES[level]);
-                        if (role) {
-                            await message.member.roles.add(role).catch(() => {});
-                            extra = `\n\n💎 **Elite Status:** Je hebt de rol **${role.name}** verdiend!`;
-                        }
-                    }
-
+                const chan = message.guild.channels.cache.find(c => c.name === 'level-up');
+                if (chan) {
                     const embed = new EmbedBuilder()
-                        .setTitle('🆙 NEXSPACE LEVEL UP')
-                        .setDescription(`Gefeliciteerd ${message.author}! Je bent nu **Level ${level}**!${extra}`)
-                        .setColor(SETTINGS.COLOR)
-                        .setThumbnail(message.author.displayAvatarURL())
-                        .setFooter({ text: 'NexSpace Elite System' });
-
-                    await logChannel.send({ content: `${message.author}`, embeds: [embed] });
+                        .setTitle('🆙 Level Up!')
+                        .setDescription(`Gefeliciteerd ${message.author}! Je bent nu **Level ${level}**!`)
+                        .setColor('#00FFFF');
+                    await chan.send({ content: `${message.author}`, embeds: [embed] });
                 }
             }
-            await db.end();
-        } catch (err) {
-            console.error('DB Error:', err);
-            if (db) await db.end().catch(() => {});
+        } catch (e) {
+            console.error(e);
+        } finally {
+            await db.end().catch(() => {});
         }
     }
 };
