@@ -1,10 +1,14 @@
 import { EmbedBuilder } from 'discord.js';
 import pg from 'pg';
 
-// Database verbinding
+// Database verbinding via Railway Variable
 const { Client } = pg;
-const db = new Client({ connectionString: process.env.DATABASE_URL });
-db.connect();
+const db = new Client({ 
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false } // Nodig voor externe database verbindingen
+});
+
+db.connect().catch(err => console.error('❌ Database verbinding mislukt:', err));
 
 const PARTNER_CHANNEL_NAME = 'partners';
 const LOG_CHANNEL_NAME = 'partner-log';
@@ -15,13 +19,14 @@ export default [
         name: 'ready',
         once: true,
         async execute(client) {
-            // Tabel aanmaken als die niet bestaat
+            // Maak de tabel aan als die nog niet bestaat
             await db.query(`
                 CREATE TABLE IF NOT EXISTS partners (
                     user_id TEXT PRIMARY KEY,
                     score INTEGER DEFAULT 0
                 )
-            `);
+            `).catch(err => console.error('❌ Fout bij aanmaken tabel:', err));
+            
             console.log("✅ Partner database is klaar en verbonden.");
             client.guilds.cache.forEach(guild => updateLeaderboard(guild));
         }
@@ -32,7 +37,7 @@ export default [
         async execute(message) {
             if (message.author.bot) return;
 
-            // AUTOMATISCH LOGGEN: Dit gaat altijd door
+            // Automatisch loggen van nieuwe berichten
             if (message.channel.name === PARTNER_CHANNEL_NAME) {
                 const hasInvite = /discord\.(gg|com\/invite)\/\w+/i.test(message.content);
                 if (hasInvite) {
@@ -53,6 +58,7 @@ export default [
     }
 ];
 
+// Functie om het leaderboard te tekenen
 export async function updateLeaderboard(guild) {
     const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL_NAME);
     if (!logChannel) return;
@@ -89,12 +95,12 @@ export async function updateLeaderboard(guild) {
     }
 }
 
-// Functie voor de Admin Update (wordt aangeroepen door het commando)
+// Functie voor de handmatige /partneradmin update scan
 export async function fullChannelScan(guild) {
     const partnerChannel = guild.channels.cache.find(c => c.name === PARTNER_CHANNEL_NAME);
-    if (!partnerChannel) return;
+    if (!partnerChannel) throw new Error("Kanaal niet gevonden");
 
-    // Reset database voor een schone start van de scan
+    // Reset database voor schone scan
     await db.query('DELETE FROM partners');
 
     let lastId;
@@ -120,4 +126,3 @@ export async function fullChannelScan(guild) {
     }
     await updateLeaderboard(guild);
 }
-
