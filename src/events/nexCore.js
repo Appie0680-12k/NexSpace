@@ -1,107 +1,101 @@
 import { EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import pg from 'pg';
 
-// We gebruiken een 'Pool', dit is veel stabieler voor Railway
 const pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-// De rollen van je foto
-const ELITE_ROLES = { 
-    1: 'Lvl 1', 
-    5: 'Lvl 5', 
-    10: 'Lvl 10', 
-    15: 'Lvl 15', 
-    20: 'Lvl 20', 
-    30: 'Lvl 30', 
-    50: 'Lvl 50' 
-};
+const ELITE_ROLES = { 1: 'Lvl 1', 5: 'Lvl 5', 10: 'Lvl 10', 15: 'Lvl 15', 20: 'Lvl 20', 30: 'Lvl 30', 50: 'Lvl 50' };
 
 export default {
     name: 'messageCreate',
     async execute(message) {
-        // Stop als het een bot is of geen server-bericht
         if (message.author.bot || !message.guild) return;
 
-        // --- DEEL A: TELLEN SYSTEEM ---
+        // --- 1. ELITE LEADERBOARD COMMAND ---
+        if (message.content === '!elite leaderboard') {
+            try {
+                const res = await pool.query('SELECT user_id, words FROM elite_levels ORDER BY words DESC LIMIT 10');
+                
+                const leaderboardEmbed = new EmbedBuilder()
+                    .setTitle('🏆 NEXSPACE ELITE LEADERBOARD')
+                    .setColor('#00FFFF')
+                    .setThumbnail(message.guild.iconURL())
+                    .setFooter({ text: 'Gebaseerd op totaal aantal woorden' });
+
+                if (res.rows.length === 0) {
+                    leaderboardEmbed.setDescription('Nog geen data beschikbaar. Begin met typen!');
+                } else {
+                    let description = "";
+                    for (let i = 0; i < res.rows.length; i++) {
+                        const user = await message.client.users.fetch(res.rows[i].user_id).catch(() => null);
+                        const name = user ? user.username : 'Onbekende Gebruiker';
+                        const lvl = Math.floor(res.rows[i].words / 150);
+                        description += `**${i + 1}.** ${name} • **Lvl ${lvl}** (${res.rows[i].words} woorden)\n`;
+                    }
+                    leaderboardEmbed.setDescription(description);
+                }
+
+                return message.reply({ embeds: [leaderboardEmbed] });
+            } catch (e) {
+                console.error(e);
+                return message.reply('❌ Kon het leaderboard niet laden.');
+            }
+        }
+
+        // --- 2. TELLEN SYSTEEM ---
         if (message.channel.name === 'tellen') {
             const input = parseInt(message.content);
             if (!isNaN(input)) {
                 try {
                     await pool.query('CREATE TABLE IF NOT EXISTS counting (id INTEGER PRIMARY KEY, count INTEGER, last_user TEXT)');
                     let res = await pool.query('SELECT * FROM counting WHERE id = 1');
-                    
                     if (res.rows.length === 0) {
                         await pool.query('INSERT INTO counting (id, count, last_user) VALUES (1, 0, $1)', ['none']);
                         res = { rows: [{ count: 0, last_user: 'none' }] };
                     }
-
                     const currentCount = res.rows[0].count;
-                    const lastUser = res.rows[0].last_user;
-
-                    if (input === currentCount + 1 && message.author.id !== lastUser) {
+                    if (input === currentCount + 1 && message.author.id !== res.rows[0].last_user) {
                         await pool.query('UPDATE counting SET count = $1, last_user = $2 WHERE id = 1', [input, message.author.id]);
                         await message.react('✅');
                     } else {
                         await pool.query('UPDATE counting SET count = 0, last_user = $1 WHERE id = 1', ['none']);
                         await message.react('❌');
-                        message.reply(`❌ **Fout!** We beginnen weer bij **1**. Reden: Verkeerd getal of je telde twee keer achter elkaar.`);
+                        message.reply(`❌ Fout! We beginnen weer bij **1**.`);
                     }
-                } catch (err) {
-                    console.error('Fout in telsysteem:', err);
-                }
+                } catch (e) { console.error(e); }
             }
         }
 
-        // --- DEEL B: LEVEL SYSTEEM (150 woorden per level) ---
+        // --- 3. LEVEL SYSTEEM (XP) ---
         try {
-            // Maak tabel aan als die niet bestaat
             await pool.query('CREATE TABLE IF NOT EXISTS elite_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
-            
-            // Tel woorden in het bericht
             const wordCount = message.content.trim().split(/\s+/).length;
-            if (wordCount < 2) return; // Negeer hele korte berichtjes
+            if (wordCount >= 2) {
+                const res = await pool.query(`
+                    INSERT INTO elite_levels (user_id, words) VALUES ($1, $2)
+                    ON CONFLICT (user_id) DO UPDATE SET words = elite_levels.words + $2
+                    RETURNING words`, [message.author.id, wordCount]);
+                
+                const total = res.rows[0].words;
+                const level = Math.floor(total / 150);
+                const oldLevel = Math.floor((total - wordCount) / 150);
 
-            // Update database en krijg nieuw totaal
-            const res = await pool.query(`
-                INSERT INTO elite_levels (user_id, words) VALUES ($1, $2)
-                ON CONFLICT (user_id) DO UPDATE SET words = elite_levels.words + $2
-                RETURNING words`, [message.author.id, wordCount]);
-            
-            const totalWords = res.rows[0].words;
-            const newLevel = Math.floor(totalWords / 150);
-            const oldLevel = Math.floor((totalWords - wordCount) / 150);
-
-            // Check voor Level Up
-            if (newLevel > oldLevel && newLevel > 0) {
-                const logChannel = message.guild.channels.cache.find(c => c.name === 'level-up');
-                let roleInfo = "";
-
-                // Check of dit level een Elite rol krijgt (van je foto)
-                if (ELITE_ROLES[newLevel]) {
-                    const roleName = ELITE_ROLES[newLevel];
-                    const role = message.guild.roles.cache.find(r => r.name === roleName);
-                    if (role) {
-                        await message.member.roles.add(role).catch(() => {});
-                        roleInfo = `\n\n💎 **Elite Status:** Je hebt de rol **${role.name}** gekregen!`;
+                if (level > oldLevel && level > 0) {
+                    const log = message.guild.channels.cache.find(c => c.name === 'level-up');
+                    let roleMsg = "";
+                    if (ELITE_ROLES[level]) {
+                        const role = message.guild.roles.cache.find(r => r.name === ELITE_ROLES[level]);
+                        if (role) { await message.member.roles.add(role).catch(() => {}); roleMsg = `\n💎 Elite Rol verdiend: **${role.name}**!`; }
+                    }
+                    if (log) {
+                        const embed = new EmbedBuilder().setTitle('🆙 LEVEL UP').setColor('#00FFFF')
+                            .setDescription(`Gefeliciteerd ${message.author}! Je bent nu **Level ${level}**!${roleMsg}`);
+                        log.send({ content: `${message.author}`, embeds: [embed] });
                     }
                 }
-
-                if (logChannel) {
-                    const embed = new EmbedBuilder()
-                        .setTitle('🆙 NEXSPACE ELITE LEVEL UP')
-                        .setDescription(`Gefeliciteerd ${message.author}! Je bent gestegen naar **Level ${newLevel}**!${roleInfo}`)
-                        .setColor('#00FFFF')
-                        .setThumbnail(message.author.displayAvatarURL())
-                        .setFooter({ text: '150 woorden per level • NexSpace Elite' })
-                        .setTimestamp();
-
-                    await logChannel.send({ content: `${message.author}`, embeds: [embed] });
-                }
             }
-        } catch (err) {
-            console.error('Fout in levelsysteem:', err);
-        }
+        } catch (e) { console.error(e); }
     }
 };
