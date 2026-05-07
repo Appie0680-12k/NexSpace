@@ -64,7 +64,7 @@ export default {
                         .setDescription(`**Gefeliciteerd ${message.author}!** \nJe bent nu Level **${newLevel}**!`)
                         .addFields(
                             { name: 'Totaal Woorden', value: `\`${currentWords}\``, inline: true },
-                            { name: 'Woorden voor volgend level', value: `\`150\``, inline: true }
+                            { name: 'Woorden voor volgend level', value: `\`500\``, inline: true }
                         )
                         .setColor('#f1c40f')
                         .setThumbnail('https://i.imgur.com/your-level-logo.png') // Vervang door een vet level logo
