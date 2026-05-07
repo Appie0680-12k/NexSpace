@@ -10,13 +10,13 @@ const pool = new pg.Pool({
 // --- DE ROLLEN CONFIGURATIE ---
 // Pas deze ID's aan naar de werkelijke ID's van de rollen in jouw server!
 const levelRoleMap = {
-    1: '123456789012345678', // Pas dit aan naar ID van Lvl 1 rol
-    5: '123456789012345678', // Pas dit aan naar ID van Lvl 5 rol
-    10: '123456789012345678', // Pas dit aan naar ID van Lvl 10 rol
-    15: '123456789012345678', // Pas dit aan naar ID van Lvl 15 rol
-    20: '123456789012345678', // Pas dit aan naar ID van Lvl 20 rol
-    30: '123456789012345678', // Pas dit aan naar ID van Lvl 30 rol
-    50: '123456789012345678'  // Pas dit aan naar ID van Lvl 50 rol
+    1: '1501645170045747312', // Pas dit aan naar ID van Lvl 1 rol
+    5: '1501645211745521814', // Pas dit aan naar ID van Lvl 5 rol
+    10: '1501645240933810286', // Pas dit aan naar ID van Lvl 10 rol
+    15: '1501645269618528296', // Pas dit aan naar ID van Lvl 15 rol
+    20: '1501645306746372127', // Pas dit aan naar ID van Lvl 20 rol
+    30: '1501645333560557690', // Pas dit aan naar ID van Lvl 30 rol
+    50: '1501645375612784670'  // Pas dit aan naar ID van Lvl 50 rol
 };
 
 export default {
