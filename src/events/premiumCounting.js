@@ -1,9 +1,12 @@
 import { Events } from 'discord.js';
 import pg from 'pg';
 
+// De database verbinding met de extra beveiliging (SSL) voor Railway
 const pool = new pg.Pool({ 
     connectionString: process.env.DATABASE_URL, 
-    ssl: { rejectUnauthorized: false } 
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
 
 export default {
@@ -14,10 +17,10 @@ export default {
 
         // 2. Check of het bericht een getal is
         const input = parseInt(message.content);
-        if (isNaN(input)) return; // Negeer berichten die geen getal zijn
+        if (isNaN(input)) return; 
 
         try {
-            // Zorg dat de tabel bestaat
+            // Zorg dat de tabel voor het tellen bestaat
             await pool.query('CREATE TABLE IF NOT EXISTS counting_game (id INTEGER PRIMARY KEY, count INTEGER, last_user TEXT)');
             
             let res = await pool.query('SELECT count, last_user FROM counting_game WHERE id = 1');
@@ -32,31 +35,25 @@ export default {
 
             // 3. De Logica: Is het getal goed?
             if (input === currentCount + 1 && message.author.id !== lastUser) {
-                // Getal is goed!
+                // Getal is goed! Update de database
                 await pool.query('UPDATE counting_game SET count = $1, last_user = $2 WHERE id = 1', [input, message.author.id]);
                 await message.react('✅');
 
                 // --- SPECIAL EVENTS ---
-                
-                // Bij getal 67
                 if (input === 67) {
                     await message.channel.send(`${message.author} **SIX SEVEN!** 🚀`);
                 }
 
-                // Bij getal 1000 (Einde van het spel)
                 if (input === 1000) {
                     await message.channel.send(`🏆 **Je hebt het uitgespeeld lekker mannen!**\nDe teller is gereset naar 0.`);
                     await pool.query('UPDATE counting_game SET count = 0, last_user = \'none\' WHERE id = 1');
                 }
 
             } else {
-                // Getal is fout of dezelfde persoon telt twee keer
-                let reason = "verkeerd getal";
-                if (message.author.id === lastUser) reason = "je mag niet twee keer achter elkaar tellen";
-
+                // Fout gemaakt! Reset naar 0
                 await pool.query('UPDATE counting_game SET count = 0, last_user = \'none\' WHERE id = 1');
                 await message.react('❌');
-                await message.reply(`❌ **FOUT!** ${message.author} verpestte het door ${input} te typen (${reason}).\nWe beginnen weer bij **1**!`);
+                await message.reply(`❌ **FOUT!** We beginnen weer bij **1**!`);
             }
         } catch (e) {
             console.error('Counting Error:', e);
