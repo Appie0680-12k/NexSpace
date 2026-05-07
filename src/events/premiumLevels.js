@@ -50,8 +50,8 @@ export default {
             const res = await pool.query('INSERT INTO premium_levels (user_id, words) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET words = premium_levels.words + $2 RETURNING words', [message.author.id, words]);
             
             const currentWords = res.rows[0].words;
-            const newLevel = Math.floor(currentWords / 150); // 150 woorden per level
-            const oldLevel = Math.floor((currentWords - words) / 150);
+            const newLevel = Math.floor(currentWords / 500); // 150 woorden per level
+            const oldLevel = Math.floor((currentWords - words) / 500);
 
             // Als de gebruiker een level omhoog is gegaan
             if (newLevel > oldLevel && newLevel > 0) {
