@@ -1,11 +1,14 @@
 import { Events, EmbedBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
+import { OpenAI } from 'openai';
+import 'dotenv/config';
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export default {
-    name: Events.InteractionCreate,
+    name: Events.InteractionCreate, // Dit luistert naar de knop
     async execute(interaction) {
-        if (!interaction.isButton()) return;
-
-        if (interaction.customId === 'start_gpt_session') {
+        // --- DE KNOP HANDLER ---
+        if (interaction.isButton() && interaction.customId === 'start_gpt_session') {
             await interaction.deferReply({ ephemeral: true });
 
             const guild = interaction.guild;
