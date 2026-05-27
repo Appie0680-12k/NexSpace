@@ -1,82 +1,63 @@
-import { Events, EmbedBuilder } from 'discord.js';
+import { Events, EmbedBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
 import 'dotenv/config';
 
 export default {
-    name: Events.MessageCreate,
-    async execute(message) {
-        if (message.author.bot || !message.guild) return;
+    name: Events.InteractionCreate, // We luisteren eerst naar de interacties (zoals de knop)
+    async execute(interaction) {
+        const client = interaction.client;
 
-        // Controleer of het bericht in een gpt-privékanaal is getypt
-        if (message.channel.name?.startsWith('gpt-')) {
-            await message.channel.sendTyping();
-            const prompt = message.content;
+        // ==========================================================
+        // DEEL 1: LOGICA VOOR DE "START PRIVÉ AI CHAT" KNOP
+        // ==========================================================
+        if (interaction.isButton() && interaction.customId === 'start_gpt_session') {
+            // Geef direct antwoord aan Discord om de 'interaction failed' error te voorkomen
+            await interaction.deferReply({ ephemeral: true });
 
-            // ==========================================================
-            // FEATURE: GRATIS AI AFBEELDING GENEREREN (Pollinations AI)
-            // ==========================================================
-            if (prompt.toLowerCase().includes('maak') || prompt.toLowerCase().includes('genereer') || prompt.toLowerCase().includes('teken') || prompt.toLowerCase().includes('image')) {
-                try {
-                    // We maken het prompt schoon voor de URL (spaties worden %20 enz.)
-                    const cleanedPrompt = encodeURIComponent(prompt);
-                    
-                    // We genereren een unieke seed op basis van de tijd zodat het plaatje altijd uniek is
-                    const seed = Math.floor(Math.random() * 999999);
-                    
-                    // Dit is de magische gratis URL die direct een AI-plaatje genereert!
-                    const imageUrl = `https://image.pollinations.ai/p/${cleanedPrompt}?width=1024&height=1024&seed=${seed}`;
-
-                    const imageEmbed = new EmbedBuilder()
-                        .setTitle('🎨 Jouw Gratis AI Generatie')
-                        .setDescription(`**Prompt:** *${prompt}*`)
-                        .setImage(imageUrl)
-                        .setColor('#00fbff')
-                        .setFooter({ text: 'Gegeneerd door Space-GPT Engine (Gratis)' });
-
-                    return await message.reply({ embeds: [imageEmbed] });
-
-                } catch (err) {
-                    console.error('Fout bij gratis afbeelding genereren:', err);
-                    return message.reply('❌ Er ging iets mis bij het genereren van de afbeelding.');
-                }
-            }
-
-            // ==========================================================
-            // FEATURE: GRATIS CHATGPT LOGICA (Google Gemini AI)
-            // ==========================================================
             try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{
-                                text: `Je bent Space-GPT, een exclusieve en slimme AI-assistent binnen de NexSpace Discord server. Je helpt volwassenen, ondernemers en beheerders met diepgaande antwoorden. Antwoord professioneel en vlot in het Nederlands. Vraag van de gebruiker: ${prompt}`
-                            }]
-                        }]
-                    })
+                const guild = interaction.guild;
+                const channelName = `gpt-${interaction.user.username}`;
+
+                // Check of deze gebruiker al een chat open heeft staan
+                const existingChannel = guild.channels.cache.find(c => c.name === channelName.toLowerCase());
+                if (existingChannel) {
+                    return await interaction.editReply({ content: `❌ Je hebt al een actieve sessie! Ga naar ${existingChannel}` });
+                }
+
+                // Maak het kanaal privé aan voor de gebruiker en admins
+                const gptChannel = await guild.channels.create({
+                    name: channelName,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel], // Verberg voor iedereen
+                        },
+                        {
+                            id: interaction.user.id,
+                            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory], // Toestaan voor de gebruiker
+                        },
+                    ],
                 });
 
-                const data = await response.json();
-                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                const welcomeEmbed = new EmbedBuilder()
+                    .setTitle('🤖 Space-GPT Privé Console')
+                    .setDescription(`Welkom <@${interaction.user.id}>! Dit kanaal is volledig privé tussen jou en de servereigenaren.\n\n**Wat kan je hier doen?**\n• Stel complexe business- of levensvragen.\n• Vraag om code, teksten of samenvattingen.\n• Typ bijvoorbeeld: *"Maak een afbeelding van een futuristische skyline"* om gratis AI kunst te creëren.`)
+                    .setColor('#00fbff')
+                    .setFooter({ text: 'Typ je bericht om te beginnen.' });
 
-                if (!reply) {
-                    return message.reply('❌ Space-GPT kon geen antwoord bedenken. Controleer of je GEMINI_API_KEY goed in Railway staat.');
-                }
-
-                // Splitsen als het antwoord langer is dan de Discord limiet (2000 tekens)
-                if (reply.length > 2000) {
-                    const chunks = reply.match(/[\s\S]{1,1900}/g);
-                    for (const chunk of chunks) { await message.reply(chunk); }
-                } else {
-                    await message.reply(reply);
-                }
+                await gptChannel.send({ embeds: [welcomeEmbed] });
+                return await interaction.editReply({ content: `✅ Je privé AI chat is aangemaakt! Klik hier: ${gptChannel}` });
 
             } catch (error) {
-                console.error('Gemini AI Fout:', error);
-                await message.reply('❌ Er ging iets mis bij het verbinden met de gratis AI service.');
+                console.error('Fout bij aanmaken gpt kanaal:', error);
+                return await interaction.editReply({ content: '❌ Er ging iets mis bij het aanmaken van je privé-kanaal.' });
             }
         }
     }
 };
+
+// ==========================================================
+// DEEL 2: CHAT LOGICA (GEMINI & POLLINATIONS AFBEELDINGEN)
+// ==========================================================
+// Omdat de TitanBot-template aparte event-bestanden fijn vindt, koppelen we hier de MessageCreate handler los aan de client zodra hij start
+export { Events as MessageEvent };
