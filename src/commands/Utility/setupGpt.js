@@ -7,7 +7,7 @@ export default {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction) {
-        // We antwoorden DIRECT aan Discord om de 3-seconden timeout en de 'Unexpected Error' te voorkomen
+        // We reageren direct om een timeout te voorkomen
         await interaction.deferReply({ ephemeral: true });
 
         try {
@@ -22,7 +22,7 @@ export default {
                     .setCustomId('start_gpt_session')
                     .setLabel('Start Privé AI Chat')
                     .setEmoji('🤖')
-                    .setStyle(ButtonStyle.Premium)
+                    .setStyle(ButtonStyle.Primary) // Veranderd van Premium naar Primary (Blauw/Paars) voor 100% stabiliteit!
             );
 
             // Stuur het paneel los in het kanaal
@@ -33,7 +33,7 @@ export default {
 
         } catch (error) {
             console.error('Fout tijdens setup-gpt commando:', error);
-            return await interaction.editReply({ content: '❌ Er ging iets mis in de code bij het plaatsen van het paneel.' });
+            return await interaction.editReply({ content: `❌ Er ging iets mis in de code bij het plaatsen van het paneel. Foutmelding: ${error.message}` });
         }
     }
 };
