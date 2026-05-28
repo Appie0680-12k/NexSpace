@@ -2,11 +2,20 @@ import { Events, EmbedBuilder } from 'discord.js';
 import Parser from 'rss-parser';
 
 const parser = new Parser();
-const NEWS_RSS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen'; // Wereldnieuws bron
-const FINANCE_RSS_URL = 'https://www.nu.nl/rss/Economie'; // Financieel & Economisch nieuws bron
 
-let lastGuid = null; // Voor wereldnieuws
-let lastFinanceGuid = null; // Voor financieel nieuws
+// De nieuwsbronnen op de achtergrond
+const WORLD_NEWS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen';
+
+// Meerdere financiële feeds gecombineerd voor maximale updates en activiteit!
+const FINANCE_FEEDS = [
+    'https://www.nu.nl/rss/Economie',
+    'https://www.rtlnieuws.nl/rss/economie/index.xml'
+];
+
+// Slimme lijstjes om verzonden artikelen in op te slaan (voorkomt dubbele berichten)
+const sentWorldArticles = new Set();
+const sentFinanceArticles = new Set();
+
 let liveMessage = null; // Voor de aandelenkoersen
 
 export default {
@@ -16,41 +25,49 @@ export default {
         console.log(`🤖 ${client.user.tag} is nu succesvol online. NexSpace systemen starten op...`);
 
         // ==========================================================
-        // SYSTEEM 1: NEXSPACE WORLD NEWS (ELKE 5 MINUTEN)
+        // SYSTEEM 1: NEXSPACE WORLD NEWS (ELKE 2 MINUTEN)
         // ==========================================================
-        async function checkNieuws() {
+        async function checkWorldNews() {
             try {
-                const feed = await parser.parseURL(NEWS_RSS_URL);
-                if (!feed.items || feed.items.length === 0) return;
+                const feed = await parser.parseURL(WORLD_NEWS_URL).catch(() => null);
+                if (!feed || !feed.items || feed.items.length === 0) return;
 
-                const nieuwsteArtikel = feed.items[0];
+                // We kijken naar de top 3 nieuwste artikelen
+                const recentItems = feed.items.slice(0, 3);
 
-                if (!lastGuid) {
-                    lastGuid = nieuwsteArtikel.guid || nieuwsteArtikel.link;
-                    return;
-                }
+                for (const item of recentItems) {
+                    const articleId = item.guid || item.link;
 
-                if (nieuwsteArtikel.guid !== lastGuid && nieuwsteArtikel.link !== lastGuid) {
-                    lastGuid = nieuwsteArtikel.guid || nieuwsteArtikel.link;
-
-                    client.guilds.cache.forEach(async (guild) => {
-                        const nieuwsChannel = guild.channels.cache.find(c => c.name === 'wereldnieuws');
+                    // Als we dit artikel deze sessie nog niet hebben gestuurd, sturen we hem DIRECT!
+                    if (!sentWorldArticles.has(articleId)) {
                         
-                        if (nieuwsChannel) {
+                        // Eerste keer opstarten? Vul het geheugen met de huidige top 3 zodat hij niet direct spamt, 
+                        // behalve als de lijst leeg is (dan zetten we hem erin voor de volgende ronde)
+                        if (sentWorldArticles.size === 0) {
+                            recentItems.forEach(i => sentWorldArticles.add(i.guid || i.link));
+                            break; 
+                        }
+
+                        sentWorldArticles.add(articleId);
+
+                        client.guilds.cache.forEach(async (guild) => {
+                            const nieuwsChannel = guild.channels.cache.find(c => c.name === 'wereldnieuws');
+                            if (!nieuwsChannel) return;
+
                             const nieuwsEmbed = new EmbedBuilder()
-                                .setTitle(`🌐 NEXSPACE NEWS | ${nieuwsteArtikel.title}`)
-                                .setURL(nieuwsteArtikel.link)
-                                .setDescription(nieuwsteArtikel.contentSnippet || nieuwsteArtikel.content || 'Klik op de onderstaande link om het volledige artikel te lezen.')
+                                .setTitle(`🌐 NEXSPACE NEWS | ${item.title}`)
+                                .setURL(item.link)
+                                .setDescription(item.contentSnippet || item.content || 'Klik op de onderstaande link om het volledige artikel te lezen.')
                                 .setColor('#00fbff')
-                                .setTimestamp(new Date(nieuwsteArtikel.pubDate))
+                                .setTimestamp(item.pubDate ? new Date(item.pubDate) : new Date())
                                 .setFooter({ text: 'NexSpace Intelligence Network • Global Updates' });
 
                             await nieuwsChannel.send({ 
-                                content: `⚠️ **🚨 BELANGRIJKE UPDATE BINNENGEKOMEN:**\n🔗 *Lees het volledige artikel hier:* ${nieuwsteArtikel.link}`, 
+                                content: `⚠️ **🚨 BELANGRIJKE UPDATE BINNENGEKOMEN:**\n🔗 *Lees het volledige artikel hier:* ${item.link}`, 
                                 embeds: [nieuwsEmbed] 
                             });
-                        }
-                    });
+                        });
+                    }
                 }
             } catch (error) {
                 console.error('Fout bij het ophalen van het NexSpace wereldnieuws:', error);
@@ -58,42 +75,50 @@ export default {
         }
 
         // ==========================================================
-        // SYSTEEM 2: NEXSPACE FINANCIAL INTELLIGENCE (ELKE 5 MINUTEN) - NIEUW!
+        // SYSTEEM 2: NEXSPACE FINANCIAL INTELLIGENCE (ELKE 2 MINUTEN - MEER BRONNEN)
         // ==========================================================
-        async function checkFinancieelNieuws() {
+        async function checkFinanceNews() {
             try {
-                const feed = await parser.parseURL(FINANCE_RSS_URL);
-                if (!feed.items || feed.items.length === 0) return;
+                for (const url of FINANCE_FEEDS) {
+                    const feed = await parser.parseURL(url).catch(() => null);
+                    if (!feed || !feed.items || feed.items.length === 0) continue;
 
-                const nieuwsteFinancieel = feed.items[0];
+                    // Pak de 3 nieuwste artikelen per beursfeed
+                    const recentItems = feed.items.slice(0, 3);
 
-                if (!lastFinanceGuid) {
-                    lastFinanceGuid = nieuwsteFinancieel.guid || nieuwsteFinancieel.link;
-                    return;
-                }
+                    for (const item of recentItems) {
+                        const articleId = item.guid || item.link;
 
-                if (nieuwsteFinancieel.guid !== lastFinanceGuid && nieuwsteFinancieel.link !== lastFinanceGuid) {
-                    lastFinanceGuid = nieuwsteFinancieel.guid || nieuwsteFinancieel.link;
+                        if (!sentFinanceArticles.has(articleId)) {
+                            
+                            // Eerste opstart-vulling om massaspam te voorkomen
+                            if (sentFinanceArticles.size === 0) {
+                                // Vul het geheugen vast met de allernieuwste items van deze feed
+                                recentItems.forEach(i => sentFinanceArticles.add(i.guid || i.link));
+                                continue;
+                            }
 
-                    client.guilds.cache.forEach(async (guild) => {
-                        // Zoekt naar het kanaal 'financiële-nieuws' of 'financiele-nieuws'
-                        const financeChannel = guild.channels.cache.find(c => c.name === 'financiële-nieuws' || c.name === 'financiele-nieuws');
-                        
-                        if (financeChannel) {
-                            const financeEmbed = new EmbedBuilder()
-                                .setTitle(`📊 NEXSPACE FINANCE | ${nieuwsteFinancieel.title}`)
-                                .setURL(nieuwsteFinancieel.link)
-                                .setDescription(nieuwsteFinancieel.contentSnippet || nieuwsteFinancieel.content || 'Klik op de link om de volledige economische update te lezen.')
-                                .setColor('#00fbff') // Dezelfde felle NexSpace Cyan look
-                                .setTimestamp(new Date(nieuwsteFinancieel.pubDate))
-                                .setFooter({ text: 'NexSpace Financial Systems • Market Impact Alerts' });
+                            sentFinanceArticles.add(articleId);
 
-                            await financeChannel.send({ 
-                                content: `📈 **⚡ ECO-MARKET FLASH UPDATE:**\n🔗 *Bekijk de impact op de markten:* ${nieuwsteFinancieel.link}`, 
-                                embeds: [financeEmbed] 
+                            client.guilds.cache.forEach(async (guild) => {
+                                const financeChannel = guild.channels.cache.find(c => c.name === 'financiële-nieuws' || c.name === 'financiele-nieuws');
+                                if (!financeChannel) return;
+
+                                const financeEmbed = new EmbedBuilder()
+                                    .setTitle(`📊 NEXSPACE FINANCE | ${item.title}`)
+                                    .setURL(item.link)
+                                    .setDescription(item.contentSnippet || item.content || 'Klik op de link om de volledige economische update te lezen.')
+                                    .setColor('#00fbff')
+                                    .setTimestamp(item.pubDate ? new Date(item.pubDate) : new Date())
+                                    .setFooter({ text: 'NexSpace Financial Systems • Market Impact Alerts' });
+
+                                await financeChannel.send({ 
+                                    content: `📈 **⚡ ECO-MARKET FLASH UPDATE:**\n🔗 *Bekijk de impact op de markten:* ${item.link}`, 
+                                    embeds: [financeEmbed] 
+                                });
                             });
                         }
-                    });
+                    }
                 }
             } catch (error) {
                 console.error('Fout bij het ophalen van het NexSpace financieel nieuws:', error);
@@ -192,15 +217,15 @@ export default {
         }
 
         // ==========================================================
-        // START ALLE TIMERS EN CHECKS DIRECT
+        // START KORTERE TIMERS EN GEOPTIMALISEERDE CHECKS DIRECT
         // ==========================================================
-        // 1. Wereldnieuws (Elke 5 minuten)
-        checkNieuws();
-        setInterval(checkNieuws, 5 * 60 * 1000);
+        // 1. Wereldnieuws (Interval verlaagd naar 2 minuten voor maximale snelheid!)
+        checkWorldNews();
+        setInterval(checkWorldNews, 2 * 60 * 1000);
 
-        // 2. Financieel & Beursnieuws (Elke 5 minuten)
-        checkFinancieelNieuws();
-        setInterval(checkFinancieelNieuws, 5 * 60 * 1000);
+        // 2. Uitgebreid Financieel Nieuws (Interval verlaagd naar 2 minuten over meerdere kanalen!)
+        checkFinanceNews();
+        setInterval(checkFinanceNews, 2 * 60 * 1000);
 
         // 3. Koersen live-ticker (Elke 3 minuten)
         updateMarkets();
