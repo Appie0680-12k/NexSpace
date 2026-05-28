@@ -1,14 +1,64 @@
 import { Events, EmbedBuilder } from 'discord.js';
+import Parser from 'rss-parser';
+
+const parser = new Parser();
+const NEWS_RSS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen'; // De nieuwsbron op de achtergrond
+let lastGuid = null; // Om dubbel nieuws te voorkomen
+let liveMessage = null; // Voor de aandelenkoersen
 
 export default {
     name: Events.ClientReady,
     once: true,
     async execute(client) {
-        // Dit is de standaard TitanBot melding die je al had
-        console.log(`🤖 ${client.user.tag} is nu succesvol online en klaar voor gebruik!`);
+        // TitanBot opstartmelding
+        console.log(`🤖 ${client.user.tag} is nu succesvol online. NexSpace systemen starten op...`);
 
         // ==========================================================
-        // NEXSPACE AUTOMATISCH KOERSEN SYSTEEM (ELKE 3 MINUTEN)
+        // SYSTEM 1: NEXSPACE NEWS NETWORK (ELKE 5 MINUTEN)
+        // ==========================================================
+        async function checkNieuws() {
+            try {
+                const feed = await parser.parseURL(NEWS_RSS_URL);
+                if (!feed.items || feed.items.length === 0) return;
+
+                const nieuwsteArtikel = feed.items[0];
+
+                // Eerste keer opstarten? Alleen onthouden om spam van oude artikelen te voorkomen
+                if (!lastGuid) {
+                    lastGuid = nieuwsteArtikel.guid || nieuwsteArtikel.link;
+                    return;
+                }
+
+                // Als er écht een gloednieuw artikel is
+                if (nieuwsteArtikel.guid !== lastGuid && nieuwsteArtikel.link !== lastGuid) {
+                    lastGuid = nieuwsteArtikel.guid || nieuwsteArtikel.link;
+
+                    client.guilds.cache.forEach(async (guild) => {
+                        const nieuwsChannel = guild.channels.cache.find(c => c.name === 'wereldnieuws');
+                        
+                        if (nieuwsChannel) {
+                            const nieuwsEmbed = new EmbedBuilder()
+                                .setTitle(`🌐 NEXSPACE NEWS | ${nieuwsteArtikel.title}`)
+                                .setURL(nieuwsteArtikel.link)
+                                .setDescription(nieuwsteArtikel.contentSnippet || nieuwsteArtikel.content || 'Klik op de onderstaande link om het volledige artikel te lezen.')
+                                .setColor('#00fbff')
+                                .setTimestamp(new Date(nieuwsteArtikel.pubDate))
+                                .setFooter({ text: 'NexSpace Intelligence Network • Global Updates' });
+
+                            await nieuwsChannel.send({ 
+                                content: `⚠️ **🚨 BELANGRIJKE UPDATE BINNENGEKOMEN:**\n🔗 *Lees het volledige artikel hier:* ${nieuwsteArtikel.link}`, 
+                                embeds: [nieuwsEmbed] 
+                            });
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Fout bij het ophalen van het NexSpace nieuws:', error);
+            }
+        }
+
+        // ==========================================================
+        // SYSTEEM 2: NEXSPACE LIVE MARKETS (ELKE 3 MINUTEN)
         // ==========================================================
         const CRYPTO_TICKERS = [
             { name: '🪙 Bitcoin (BTC)', id: 'bitcoin' },
@@ -21,14 +71,11 @@ export default {
             { name: '⚡ Tesla (TSLA)', symbol: 'TSLA' }
         ];
 
-        let liveMessage = null;
-
-        // Functie die de koersen ophaalt en de tabel bijwerkt
         async function updateMarkets() {
             try {
                 let tableRows = [];
 
-                // 1. Crypto data ophalen
+                // Crypto data laden
                 try {
                     const cryptoRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true`);
                     const cryptoData = await cryptoRes.json();
@@ -49,7 +96,7 @@ export default {
                     console.error('Kon crypto data niet laden:', err);
                 }
 
-                // 2. Aandelen data ophalen
+                // Aandelen data laden
                 for (const stock of STOCK_TICKERS) {
                     try {
                         const stockRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=1d`);
@@ -72,20 +119,17 @@ export default {
 
                 if (tableRows.length === 0) return;
 
-                // Bouw het premium NexSpace Live Markten Schema
                 const marketEmbed = new EmbedBuilder()
                     .setTitle('📊 NEXSPACE INTELLIGENCE | REAL-TIME MARKETS')
                     .setDescription(`Welkom op de NexSpace Trading Terminal. Hieronder vind je de realtime koersen van de belangrijkste crypto's en tech-aandelen.\n\n*Dit schema wordt elke 3 minuten automatisch live bijgewerkt.*\n\n🟢 **Status:** DATAFEED LIVE\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` + tableRows.join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'))
-                    .setColor('#00fbff') // De bekende cyan neon NexSpace kleur
+                    .setColor('#00fbff')
                     .setTimestamp()
                     .setFooter({ text: 'NexSpace Financial Systems • Live Market Feed' });
 
-                // Zoek naar het kanaal '#aandelen-koers' in alle servers
                 client.guilds.cache.forEach(async (guild) => {
                     const marketChannel = guild.channels.cache.find(c => c.name === 'aandelen-koers');
                     if (!marketChannel) return;
 
-                    // Als we het bericht nog niet in het geheugen hebben, check de chatgeschiedenis
                     if (!liveMessage) {
                         const recentMessages = await marketChannel.messages.fetch({ limit: 10 });
                         const botMsg = recentMessages.find(m => m.author.id === client.user.id);
@@ -93,10 +137,8 @@ export default {
                     }
 
                     if (liveMessage) {
-                        // Pas het bestaande schema geruisloos aan (geen spam!)
                         await liveMessage.edit({ content: null, embeds: [marketEmbed] }).catch(() => { liveMessage = null; });
                     } else {
-                        // Stuur het allereerste schema als er nog niks staat
                         liveMessage = await marketChannel.send({ embeds: [marketEmbed] });
                     }
                 });
@@ -106,10 +148,15 @@ export default {
             }
         }
 
-        // Voer de update direct uit zodra de bot opstart
-        updateMarkets();
+        // ==========================================================
+        // START DE TIMERS EN EERSTE CHECKS Direct!
+        // ==========================================================
+        // Start nieuws-systeem
+        checkNieuws();
+        setInterval(checkNieuws, 5 * 60 * 1000); // Check elke 5 minuten op nieuw nieuws
 
-        // Herhaal dit proces daarna strak om de 3 minuten (3 * 60 * 1000 milliseconden)
-        setInterval(updateMarkets, 3 * 60 * 1000);
+        // Start koersen-systeem
+        updateMarkets();
+        setInterval(updateMarkets, 3 * 60 * 1000); // Update schema elke 3 minuten
     }
 };
