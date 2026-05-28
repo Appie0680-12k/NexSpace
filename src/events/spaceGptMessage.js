@@ -15,15 +15,14 @@ export default {
 
         try {
             // ==========================================================
-            // STAP 1: GEHEUGEN OPHALEN (Chatgeschiedenis uit het kanaal)
+            // STAP 1: GEHEUGEN OPHALEN
             // ==========================================================
-            const fetchedMessages = await message.channel.messages.fetch({ limit: 10 }); // Verlaagd naar 10 voor extra snelheid
+            const fetchedMessages = await message.channel.messages.fetch({ limit: 10 });
             const conversationHistory = [];
 
             const reverseMessages = Array.from(fetchedMessages.values()).reverse();
 
             for (const msg of reverseMessages) {
-                // Sla foutmeldingen en embed-berichten over voor het schone geheugen
                 if (msg.content && !msg.content.includes('{"error":') && !msg.content.includes('❌')) {
                     if (msg.author.id === message.client.user.id) {
                         conversationHistory.push({ role: "assistant", content: msg.content });
@@ -34,16 +33,23 @@ export default {
             }
 
             // ==========================================================
-            // DEEL 2: AFBEELDING GENERATOR MET GEHEUGEN
+            // STAP 2: SLIMME CHECK - IS DIT EEN AFBEELDING OF TEKST?
             // ==========================================================
-            const isImageRequest = prompt.toLowerCase().includes('maak') || 
-                                   prompt.toLowerCase().includes('genereer') || 
-                                   prompt.toLowerCase().includes('teken') || 
-                                   prompt.toLowerCase().includes('image') ||
-                                   prompt.toLowerCase().includes('pas aan') ||
-                                   prompt.toLowerCase().includes('verander') ||
-                                   prompt.toLowerCase().includes('doe');
+            const triggerWords = ['maak', 'genereer', 'teken', 'image', 'pas aan', 'verander', 'doe'];
+            const textOverrideWords = ['verhaal', 'tekst', 'uitleg', 'code', 'script', 'gedicht', 'brief', 'samenvatting'];
 
+            // Het is een afbeelding als een triggerwoord erin zit...
+            let isImageRequest = triggerWords.some(word => prompt.toLowerCase().includes(word));
+            
+            // ...MAAR als er ook woorden zoals 'verhaal' of 'tekst' in staan, is het ALTIJD tekst!
+            const hasTextOverride = textOverrideWords.some(word => prompt.toLowerCase().includes(word));
+            if (hasTextOverride) {
+                isImageRequest = false;
+            }
+
+            // ==========================================================
+            // DEEL 3: AFBEELDING GENERATOR
+            // ==========================================================
             if (isImageRequest) {
                 const allUserPrompts = conversationHistory
                     .filter(h => h.role === "user")
@@ -67,12 +73,11 @@ export default {
             }
 
             // ==========================================================
-            // DEEL 3: RECHSTREEKSE CHAT-AI (SNELLER & GEEN QUEUE LIMIT)
+            // DEEL 4: CHAT-AI (NU MET EXTRASINDS VOOR VERHALEN)
             // ==========================================================
-            // We sturen de aanvraag via de stabiele GET-methode, deze omzeilt de drukke POST-wachtrij!
-            const systemPrompt = "Je bent Space-GPT binnen de NexSpace Discord server. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen). Geef pas uitgebreide uitleg als de gebruiker hier expliciet naar vraagt. Antwoord altijd in het Nederlands.";
+            // Systeeminstructie aangepast zodat hij kort reageert bij info, maar wél verhalen mag schrijven als je erom vraagt!
+            const systemPrompt = "Je bent Space-GPT binnen de NexSpace Discord server. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen) bij normale vragen en feiten. ALS de gebruiker expliciet vraagt om een verhaal, code of uitgebreide uitleg, dan mag je wél een lang en creatief antwoord geven. Antwoord altijd in het Nederlands.";
             
-            // We pakken de laatste berichten samen als context
             const cleanHistory = conversationHistory.map(h => `${h.role === 'user' ? 'Gebruiker' : 'AI'}: ${h.content}`).join('\n');
             const fullContext = `${systemPrompt}\n\nGeschiedenis:\n${cleanHistory}\n\nGebruiker: ${prompt}\nAI:`;
 
@@ -97,3 +102,4 @@ export default {
         }
     }
 };
+
