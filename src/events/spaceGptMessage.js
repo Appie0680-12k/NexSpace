@@ -3,79 +3,110 @@ import { Events, EmbedBuilder } from 'discord.js';
 export default {
     name: Events.MessageCreate,
     async execute(message) {
+        // Zorg dat de bot niet op zichzelf reageert en alleen in gpt-kanalen werkt
         if (message.author.bot || !message.guild) return;
+        if (!message.channel.name?.startsWith('gpt-')) return;
+        if (message.content.startsWith('/')) return;
 
-        // Controleer of het bericht in een gpt-privékanaal staat
-        if (message.channel.name?.startsWith('gpt-')) {
-            const prompt = message.content;
+        const prompt = message.content;
 
-            // Start direct het typen-icoontje zodat Discord weet dat de bot bezig is
-            await message.channel.sendTyping();
+        // Start direct het typen-icoontje in Discord
+        await message.channel.sendTyping();
 
+        try {
             // ==========================================================
-            // DEEL 1: ULTRA-HD LUXE AFBEELDING GENERATOR (BLIKSEMSNEL)
+            // STAP 1: GEHEUGEN OPHALEN (Chatgeschiedenis uit het kanaal)
             // ==========================================================
-            if (prompt.toLowerCase().includes('maak') || prompt.toLowerCase().includes('genereer') || prompt.toLowerCase().includes('teken') || prompt.toLowerCase().includes('image')) {
-                try {
-                    // Deze lijst met Engelse vaktermen dwingt de AI om ALTIJD extreem luxe, 
-                    // fotorealistische en high-end resultaten te leveren in plaats van simpele tekeningen.
-                    const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, award-winning architectural design, elegant, highly detailed, photorealistic, premium quality";
-                    
-                    // We voegen jouw vraag en de luxe-termen samen en maken de link klaar voor internet
-                    const combinedPrompt = encodeURIComponent(`${prompt}, ${luxuryEnhancement}`);
-                    
-                    // Een unieke code per bericht zodat hij nooit een oud plaatje hergebruikt
-                    const seed = Math.floor(Math.random() * 9999999);
-                    
-                    // We gebruiken de razendsnelle en stabiele standaard-engine (laadt direct!)
-                    const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}`;
+            // We halen de laatste 15 berichten op uit het kanaal om als context mee te geven
+            const fetchedMessages = await message.channel.messages.fetch({ limit: 15 });
+            const conversationHistory = [];
 
-                    const imageEmbed = new EmbedBuilder()
-                        .setTitle('🎨 NexSpace AI Premium Generation')
-                        .setDescription(`**Jouw opdracht:** *${prompt}*\n\n*De engine heeft de details automatisch opgeschaald naar Ultra-HD Luxury Kwaliteit.*`)
-                        .setImage(imageUrl)
-                        .setColor('#00fbff')
-                        .setFooter({ text: 'NexSpace Premium Graphics Engine • Live' });
+            // We zetten de berichten in de juiste chronologische volgorde (oud naar nieuw)
+            const reverseMessages = Array.from(fetchedMessages.values()).reverse();
 
-                    return await message.reply({ embeds: [imageEmbed] });
-                } catch (err) {
-                    console.error('Fout bij premium afbeelding genereren:', err);
-                    return message.reply('❌ Er ging iets mis bij het genereren van de luxe afbeelding.');
-                }
-            }
-
-            // ==========================================================
-            // DEEL 2: RECHTSTREEKSE CHAT-AI (TEXT)
-            // ==========================================================
-            try {
-                const response = await fetch(`https://text.pollinations.ai/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messages: [
-                            { role: "system", content: "Je bent Space-GPT, een exclusieve en extreem slimme AI-assistent binnen de NexSpace Discord server. Je helpt ondernemers. Antwoord altijd direct, professioneel en uitgebreid in het Nederlands." },
-                            { role: "user", content: prompt }
-                        ]
-                    })
-                });
-
-                const reply = await response.text();
-
-                if (!reply || reply.trim().length === 0) {
-                    return message.reply('❌ Space-GPT ondervindt momenteel een time-out. Probeer het over een moment opnieuw.');
-                }
-
-                if (reply.length > 2000) {
-                    const chunks = reply.match(/[\s\S]{1,1900}/g);
-                    for (const chunk of chunks) { await message.reply(chunk); }
+            for (const msg of reverseMessages) {
+                // Sla de systeem-embeds of lege berichten van de bot over voor de tekstcontext
+                if (msg.author.id === message.client.user.id) {
+                    if (msg.content) {
+                        conversationHistory.push({ role: "assistant", content: msg.content });
+                    }
                 } else {
-                    await message.reply(reply);
+                    if (msg.content) {
+                        conversationHistory.push({ role: "user", content: msg.content });
+                    }
                 }
-
-            } catch (error) {
-                console.error('Chat AI Fout:', error);
-                await message.reply('❌ Er ging iets mis bij het laden van het AI-antwoord.');
             }
+
+            // ==========================================================
+            // DEEL 2: AFBEELDING GENERATOR MET GEHEUGEN (AANPASSINGEN DOEN)
+            // ==========================================================
+            const isImageRequest = prompt.toLowerCase().includes('maak') || 
+                                   prompt.toLowerCase().includes('genereer') || 
+                                   prompt.toLowerCase().includes('teken') || 
+                                   prompt.toLowerCase().includes('image') ||
+                                   prompt.toLowerCase().includes('pas aan') ||
+                                   prompt.toLowerCase().includes('verander') ||
+                                   prompt.toLowerCase().includes('doe dak'); // Extra trigger voor aanpassingen
+
+            if (isImageRequest) {
+                // We verzamelen alle eerdere prompts uit de geschiedenis zodat de AI snapt wat we aanpassen
+                const allUserPrompts = conversationHistory
+                    .filter(h => h.role === "user")
+                    .map(h => h.content)
+                    .join(", ");
+
+                const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, award-winning architectural design, elegant, highly detailed, photorealistic, premium quality";
+                
+                // Door alle gebruikersberichten samen te voegen, snapt de AI: "Huis" + "Doe dak rood" = Een luxe huis met een rood dak!
+                const combinedPrompt = encodeURIComponent(`${allUserPrompts}, ${luxuryEnhancement}`);
+                const seed = Math.floor(Math.random() * 9999999);
+                const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}`;
+
+                const imageEmbed = new EmbedBuilder()
+                    .setTitle('🎨 NexSpace AI Premium Generation')
+                    .setDescription(`**Jouw opdracht:** *${prompt}*\n\n*Kwaliteit automatisch geoptimaliseerd naar Ultra-HD Luxury.*`)
+                    .setImage(imageUrl)
+                    .setColor('#00fbff')
+                    .setFooter({ text: 'NexSpace Premium Graphics Engine • Live' });
+
+                return await message.reply({ embeds: [imageEmbed] });
+            }
+
+            // ==========================================================
+            // DEEL 3: CHAT-AI (KORT & BONDIG ZOALS CHATGPT)
+            // ==========================================================
+            // We bouwen de berichtenlijst op voor de AI, inclusief de strenge instructie
+            const apiMessages = [
+                { 
+                    role: "system", 
+                    content: "Je bent Space-GPT, een exclusieve en slimme AI-assistent binnen de NexSpace Discord server. Je helpt ondernemers. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen). Geef alleen een uitgebreid antwoord als de gebruiker expliciet vraagt om meer informatie, details of uitleg. Antwoord altijd in het Nederlands." 
+                },
+                ...conversationHistory // Hier stoppen we het geheugen erin!
+            ];
+
+            const response = await fetch(`https://text.pollinations.ai/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: apiMessages })
+            });
+
+            const reply = await response.text();
+
+            if (!reply || reply.trim().length === 0) {
+                return message.reply('❌ Space-GPT ondervindt momenteel een time-out. Probeer het over een moment opnieuw.');
+            }
+
+            // Versturen naar Discord
+            if (reply.length > 2000) {
+                const chunks = reply.match(/[\s\S]{1,1900}/g);
+                for (const chunk of chunks) { await message.reply(chunk); }
+            } else {
+                await message.reply(reply);
+            }
+
+        } catch (error) {
+            console.error('Space-GPT Error:', error);
+            await message.reply('❌ Er ging iets mis bij het verwerken van je bericht.');
         }
     }
 };
