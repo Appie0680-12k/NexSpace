@@ -17,28 +17,24 @@ export default {
             // ==========================================================
             // STAP 1: GEHEUGEN OPHALEN (Chatgeschiedenis uit het kanaal)
             // ==========================================================
-            // We halen de laatste 15 berichten op uit het kanaal om als context mee te geven
-            const fetchedMessages = await message.channel.messages.fetch({ limit: 15 });
+            const fetchedMessages = await message.channel.messages.fetch({ limit: 10 }); // Verlaagd naar 10 voor extra snelheid
             const conversationHistory = [];
 
-            // We zetten de berichten in de juiste chronologische volgorde (oud naar nieuw)
             const reverseMessages = Array.from(fetchedMessages.values()).reverse();
 
             for (const msg of reverseMessages) {
-                // Sla de systeem-embeds of lege berichten van de bot over voor de tekstcontext
-                if (msg.author.id === message.client.user.id) {
-                    if (msg.content) {
+                // Sla foutmeldingen en embed-berichten over voor het schone geheugen
+                if (msg.content && !msg.content.includes('{"error":') && !msg.content.includes('❌')) {
+                    if (msg.author.id === message.client.user.id) {
                         conversationHistory.push({ role: "assistant", content: msg.content });
-                    }
-                } else {
-                    if (msg.content) {
+                    } else {
                         conversationHistory.push({ role: "user", content: msg.content });
                     }
                 }
             }
 
             // ==========================================================
-            // DEEL 2: AFBEELDING GENERATOR MET GEHEUGEN (AANPASSINGEN DOEN)
+            // DEEL 2: AFBEELDING GENERATOR MET GEHEUGEN
             // ==========================================================
             const isImageRequest = prompt.toLowerCase().includes('maak') || 
                                    prompt.toLowerCase().includes('genereer') || 
@@ -46,10 +42,9 @@ export default {
                                    prompt.toLowerCase().includes('image') ||
                                    prompt.toLowerCase().includes('pas aan') ||
                                    prompt.toLowerCase().includes('verander') ||
-                                   prompt.toLowerCase().includes('doe dak'); // Extra trigger voor aanpassingen
+                                   prompt.toLowerCase().includes('doe');
 
             if (isImageRequest) {
-                // We verzamelen alle eerdere prompts uit de geschiedenis zodat de AI snapt wat we aanpassen
                 const allUserPrompts = conversationHistory
                     .filter(h => h.role === "user")
                     .map(h => h.content)
@@ -57,7 +52,6 @@ export default {
 
                 const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, award-winning architectural design, elegant, highly detailed, photorealistic, premium quality";
                 
-                // Door alle gebruikersberichten samen te voegen, snapt de AI: "Huis" + "Doe dak rood" = Een luxe huis met een rood dak!
                 const combinedPrompt = encodeURIComponent(`${allUserPrompts}, ${luxuryEnhancement}`);
                 const seed = Math.floor(Math.random() * 9999999);
                 const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}`;
@@ -73,27 +67,20 @@ export default {
             }
 
             // ==========================================================
-            // DEEL 3: CHAT-AI (KORT & BONDIG ZOALS CHATGPT)
+            // DEEL 3: RECHSTREEKSE CHAT-AI (SNELLER & GEEN QUEUE LIMIT)
             // ==========================================================
-            // We bouwen de berichtenlijst op voor de AI, inclusief de strenge instructie
-            const apiMessages = [
-                { 
-                    role: "system", 
-                    content: "Je bent Space-GPT, een exclusieve en slimme AI-assistent binnen de NexSpace Discord server. Je helpt ondernemers. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen). Geef alleen een uitgebreid antwoord als de gebruiker expliciet vraagt om meer informatie, details of uitleg. Antwoord altijd in het Nederlands." 
-                },
-                ...conversationHistory // Hier stoppen we het geheugen erin!
-            ];
+            // We sturen de aanvraag via de stabiele GET-methode, deze omzeilt de drukke POST-wachtrij!
+            const systemPrompt = "Je bent Space-GPT binnen de NexSpace Discord server. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen). Geef pas uitgebreide uitleg als de gebruiker hier expliciet naar vraagt. Antwoord altijd in het Nederlands.";
+            
+            // We pakken de laatste berichten samen als context
+            const cleanHistory = conversationHistory.map(h => `${h.role === 'user' ? 'Gebruiker' : 'AI'}: ${h.content}`).join('\n');
+            const fullContext = `${systemPrompt}\n\nGeschiedenis:\n${cleanHistory}\n\nGebruiker: ${prompt}\nAI:`;
 
-            const response = await fetch(`https://text.pollinations.ai/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: apiMessages })
-            });
-
+            const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(fullContext)}`);
             const reply = await response.text();
 
-            if (!reply || reply.trim().length === 0) {
-                return message.reply('❌ Space-GPT ondervindt momenteel een time-out. Probeer het over een moment opnieuw.');
+            if (!reply || reply.trim().length === 0 || reply.includes('Queue full')) {
+                return message.reply('❌ Space-GPT ondervindt momenteel drukte. Probeer het over 3 seconden nog eens.');
             }
 
             // Versturen naar Discord
