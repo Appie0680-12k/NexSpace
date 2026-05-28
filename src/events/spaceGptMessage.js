@@ -7,31 +7,35 @@ export default {
 
         // Controleer of het bericht in een gpt-privékanaal staat
         if (message.channel.name?.startsWith('gpt-')) {
-            await message.channel.sendTyping();
             const prompt = message.content;
 
+            // Start direct het typen-icoontje zodat Discord weet dat de bot bezig is
+            await message.channel.sendTyping();
+
             // ==========================================================
-            // DEEL 1: GEUPGRADEDE PREMIUM AFBEELDING GENERATOR (100% GRATIS)
+            // DEEL 1: ULTRA-HD LUXE AFBEELDING GENERATOR (BLIKSEMSNEL)
             // ==========================================================
             if (prompt.toLowerCase().includes('maak') || prompt.toLowerCase().includes('genereer') || prompt.toLowerCase().includes('teken') || prompt.toLowerCase().includes('image')) {
                 try {
-                    // We voegen hier automatisch super-kwaliteit keywords toe aan jouw prompt
-                    // Dit dwingt de AI om ultra-realistische, luxe graphics te maken in plaats van simpele plaatjes!
-                    const premiumEnhancement = "Ultra-realistic photo, 8k resolution, cinematic lighting, hyper-detailed, luxury lifestyle, modern professional design, elegant architectural style, neon accents --ar 16:9";
+                    // Deze lijst met Engelse vaktermen dwingt de AI om ALTIJD extreem luxe, 
+                    // fotorealistische en high-end resultaten te leveren in plaats van simpele tekeningen.
+                    const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, award-winning architectural design, elegant, highly detailed, photorealistic, premium quality";
                     
-                    // Schoonmaken voor de internet-link
-                    const combinedPrompt = encodeURIComponent(`${prompt}, ${premiumEnhancement}`);
+                    // We voegen jouw vraag en de luxe-termen samen en maken de link klaar voor internet
+                    const combinedPrompt = encodeURIComponent(`${prompt}, ${luxuryEnhancement}`);
+                    
+                    // Een unieke code per bericht zodat hij nooit een oud plaatje hergebruikt
                     const seed = Math.floor(Math.random() * 9999999);
                     
-                    // We gebruiken de geavanceerde FLUX-engine van Pollinations voor échte fotokwaliteit!
-                    const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}&model=flux`;
+                    // We gebruiken de razendsnelle en stabiele standaard-engine (laadt direct!)
+                    const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}`;
 
                     const imageEmbed = new EmbedBuilder()
                         .setTitle('🎨 NexSpace AI Premium Generation')
-                        .setDescription(`**Jouw opdracht:** *${prompt}*\n\n*De engine heeft de kwaliteit automatisch opgeschaald naar Ultra-HD 8K.*`)
+                        .setDescription(`**Jouw opdracht:** *${prompt}*\n\n*De engine heeft de details automatisch opgeschaald naar Ultra-HD Luxury Kwaliteit.*`)
                         .setImage(imageUrl)
                         .setColor('#00fbff')
-                        .setFooter({ text: 'NexSpace Premium Graphics Engine • Gratis' });
+                        .setFooter({ text: 'NexSpace Premium Graphics Engine • Live' });
 
                     return await message.reply({ embeds: [imageEmbed] });
                 } catch (err) {
@@ -41,16 +45,15 @@ export default {
             }
 
             // ==========================================================
-            // DEEL 2: RECHTSTREEKSE CHAT-AI (ZONDER DIE MOEILIJKE GOOGLE KEY!)
+            // DEEL 2: RECHTSTREEKSE CHAT-AI (TEXT)
             // ==========================================================
             try {
-                // We sturen de vraag naar een alternatieve, stabiele gratis text-gateway die ALTIJD werkt
                 const response = await fetch(`https://text.pollinations.ai/`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         messages: [
-                            { role: "system", content: "Je bent Space-GPT, een exclusieve en extreem slimme AI-assistent binnen de NexSpace Discord server. Je helpt volwassenen en ondernemers met diepgaande business antwoorden. Antwoord ALTIJD professioneel, vlot en uitgebreid in het Nederlands." },
+                            { role: "system", content: "Je bent Space-GPT, een exclusieve en extreem slimme AI-assistent binnen de NexSpace Discord server. Je helpt ondernemers. Antwoord altijd direct, professioneel en uitgebreid in het Nederlands." },
                             { role: "user", content: prompt }
                         ]
                     })
@@ -62,7 +65,6 @@ export default {
                     return message.reply('❌ Space-GPT ondervindt momenteel een time-out. Probeer het over een moment opnieuw.');
                 }
 
-                // Splitsen als het antwoord langer is dan de Discord limiet (2000 tekens)
                 if (reply.length > 2000) {
                     const chunks = reply.match(/[\s\S]{1,1900}/g);
                     for (const chunk of chunks) { await message.reply(chunk); }
