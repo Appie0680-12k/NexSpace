@@ -22,7 +22,7 @@ export default {
     name: Events.ClientReady,
     once: true,
     async execute(client) {
-        console.log(`🤖 ${client.user.tag} is nu succesvol online. NexSpace systemen starten op...`);
+        console.log(`🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js! NexSpace systemen starten op...`);
 
         // ==========================================================
         // SYSTEEM 1: NEXSPACE WORLD NEWS (ELKE 2 MINUTEN)
@@ -217,13 +217,13 @@ export default {
         }
 
         // ==========================================================
-        // START KORTERE TIMERS EN GEOPTIMALISEERDE CHECKS DIRECT
+        // START DE CHECKS EN GEOPTIMALISEERDE TIMERS DIRECT
         // ==========================================================
-        // 1. Wereldnieuws (Interval verlaagd naar 2 minuten voor maximale snelheid!)
+        // 1. Wereldnieuws (Elke 2 minuten)
         checkWorldNews();
         setInterval(checkWorldNews, 2 * 60 * 1000);
 
-        // 2. Uitgebreid Financieel Nieuws (Interval verlaagd naar 2 minuten over meerdere kanalen!)
+        // 2. Uitgebreid Financieel Nieuws (Elke 2 minuten)
         checkFinanceNews();
         setInterval(checkFinanceNews, 2 * 60 * 1000);
 
