@@ -2,7 +2,6 @@ import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
-import cron from 'node-cron';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,12 +11,8 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const invitesCache = new Map();
-
-// Pak de token direct uit Railway en strip alle onzin
-const RAW_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
-const CLEAN_TOKEN = RAW_TOKEN ? RAW_TOKEN.replace(/["']/g, "").trim() : null;
-const GUILD_ID = process.env.GUILD_ID || "JOUW_SERVER_ID_HIER"; 
+// ZET HIER JOUW ECHTE DISCORD TOKEN RECHTSTREEKS TUSSEN DE QUOTES:
+const HARDCODED_TOKEN = "";
 
 class TitanBot extends Client {
   constructor() {
@@ -31,58 +26,31 @@ class TitanBot extends Client {
       ],
     });
 
-    this.token = CLEAN_TOKEN;
+    this.token = HARDCODED_TOKEN;
     this.commands = new Collection();
-    this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
+    this.rest = new REST({ version: '10' }).setToken(HARDCODED_TOKEN);
   }
 
   async start() {
     try {
-      console.log('🚀 [START] TitanBot forceren online...');
-      
-      if (!CLEAN_TOKEN) {
-        console.error('❌ [ERROR] Geen token gevonden in Railway variabelen!');
-        process.exit(1);
-      }
-
-      // Start direct de webserver voor Railway health check
+      console.log('🚀 [START] Bot forceren via hardcoded token...');
       this.startWebServer();
       
-      console.log('📂 [COMMANDS] Laden van commando\'s...');
       try {
         await loadCommands(this);
         console.log(`✅ [COMMANDS] ${this.commands.size} commando's geladen.`);
-      } catch (cmdErr) {
-        console.error(`⚠️ [COMMANDS] Fout bij laden commando's: ${cmdErr.message}`);
-      }
-      
-      // Laad VEILIG de events in
-      const eventsPath = path.join(__dirname, 'src', 'events');
-      if (fs.existsSync(eventsPath)) {
-          const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-          for (const file of eventFiles) {
-              try {
-                  const filePath = path.join(eventsPath, file);
-                  const { default: event } = await import(`file://${filePath}`);
-                  if (event && event.name) {
-                      this.on(event.name, (...args) => event.execute(...args, this));
-                  }
-              } catch (e) {}
-          }
-      }
+      } catch (cmdErr) {}
       
       this.once('ready', async () => {
-        console.log('📡 [DISCORD] Verbinding stabiel. Slash commando\'s pushen...');
+        console.log('📡 [DISCORD] Verbinding stabiel!');
         try {
-          await registerSlashCommands(this, GUILD_ID);
-          console.log('✅ [SUCCESS] ONLINE EN READY! Commando\'s werken nu.');
-        } catch (regErr) {
-          console.error(`⚠️ [SLASH] Kon commands niet registreren: ${regErr.message}`);
-        }
+          await registerSlashCommands(this, this.config?.bot?.guildId || "1234");
+          console.log('✅ ONLINE EN READY!');
+        } catch (regErr) {}
       });
 
       console.log('🔐 [LOGIN] Inloggen bij Discord...');
-      await this.login(CLEAN_TOKEN);
+      await this.login(HARDCODED_TOKEN);
       
     } catch (error) {
       console.error('❌ [CRASH] Bot starten mislukt:', error);
@@ -91,16 +59,9 @@ class TitanBot extends Client {
   }
 
   startWebServer() {
-    try {
-      const app = express();
-      app.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
-      const port = Number(process.env.PORT || 3000);
-      app.listen(port, '0.0.0.0', () => {
-        console.log(`🌐 [WEB] Health server actief op poort ${port}`);
-      });
-    } catch (err) {
-      console.error('⚠️ Webserver crash bypassed');
-    }
+    const app = express();
+    app.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
+    app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
   }
 }
 
