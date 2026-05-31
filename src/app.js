@@ -7,11 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import config from './config/application.js';
-import { initializeDatabase } from './utils/database.js';
-import { logger, startupLog } from './utils/logger.js';
-import { checkBirthdays } from './services/birthdayService.js';
-import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -19,9 +14,10 @@ const __dirname = path.dirname(__filename);
 
 export const invitesCache = new Map();
 
-// Pak de token en strip eventuele foute spaties/aanhalingstekens direct weg
-const RAW_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || config.bot?.token;
+// Pak de token direct uit Railway en strip alle onzin
+const RAW_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
 const CLEAN_TOKEN = RAW_TOKEN ? RAW_TOKEN.replace(/["']/g, "").trim() : null;
+const GUILD_ID = process.env.GUILD_ID || "JOUW_SERVER_ID_HIER"; 
 
 class TitanBot extends Client {
   constructor() {
@@ -31,56 +27,36 @@ class TitanBot extends Client {
         GatewayIntentBits.GuildMembers,                 
         GatewayIntentBits.GuildInvites,                 
         GatewayIntentBits.GuildMessages,                
-        GatewayIntentBits.GuildMessageReactions,        
         GatewayIntentBits.MessageContent,               
-        GatewayIntentBits.GuildVoiceStates,             
-        GatewayIntentBits.GuildBans,                    
       ],
     });
 
-    // Dwing de token overal in het systeem erin
     this.token = CLEAN_TOKEN;
-    this.config = config;
-    if (this.config && this.config.bot) this.config.bot.token = CLEAN_TOKEN;
-
     this.commands = new Collection();
-    this.events = new Collection();
-    this.buttons = new Collection();
-    this.selectMenus = new Collection();
-    this.modals = new Collection();
-    this.cooldowns = new Collection();
-    this.db = null;
     this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
   }
 
   async start() {
     try {
-      startupLog('Starting TitanBot...');
+      console.log('🚀 [START] TitanBot forceren online...');
       
-      // Controleer direct of we wel een token hebben ingeladen
-      if (!CLEAN_TOKEN || CLEAN_TOKEN.length < 10) {
-        logger.error('❌ CRITIEK: Railway geeft GEEN token door aan de code! Check je Variable naam.');
+      if (!CLEAN_TOKEN) {
+        console.error('❌ [ERROR] Geen token gevonden in Railway variabelen!');
         process.exit(1);
       }
 
-      startupLog('Initializing database...');
-      try {
-        const dbInstance = await initializeDatabase();
-        this.db = dbInstance.db;
-      } catch (dbErr) {
-        logger.error('Database bypass...');
-      }
-      
+      // Start direct de webserver voor Railway health check
       this.startWebServer();
       
-      startupLog('Loading commands...');
+      console.log('📂 [COMMANDS] Laden van commando\'s...');
       try {
         await loadCommands(this);
+        console.log(`✅ [COMMANDS] ${this.commands.size} commando's geladen.`);
       } catch (cmdErr) {
-        logger.error(`Bypassed command error: ${cmdErr.message}`);
+        console.error(`⚠️ [COMMANDS] Fout bij laden commando's: ${cmdErr.message}`);
       }
       
-      // VEILIGE EVENT LOADER
+      // Laad VEILIG de events in
       const eventsPath = path.join(__dirname, 'src', 'events');
       if (fs.existsSync(eventsPath)) {
           const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
@@ -89,54 +65,42 @@ class TitanBot extends Client {
                   const filePath = path.join(eventsPath, file);
                   const { default: event } = await import(`file://${filePath}`);
                   if (event && event.name) {
-                      if (event.once) {
-                          this.once(event.name, (...args) => event.execute(...args, this));
-                      } else {
-                          this.on(event.name, (...args) => event.execute(...args, this));
-                      }
+                      this.on(event.name, (...args) => event.execute(...args, this));
                   }
-              } catch (eventError) {}
+              } catch (e) {}
           }
       }
       
-      this.once('clientReady', async () => {
-        startupLog('Scanning invites...');
-        this.guilds.cache.forEach(async (guild) => {
-          try {
-            const firstInvites = await guild.invites.fetch();
-            invitesCache.set(guild.id, new Map(firstInvites.map((inv) => [inv.code, inv.uses])));
-          } catch (err) {}
-        });
-
-        startupLog('Registering slash commands...');
+      this.once('ready', async () => {
+        console.log('📡 [DISCORD] Verbinding stabiel. Slash commando\'s pushen...');
         try {
-          await registerSlashCommands(this, this.config.bot?.guildId);
-          startupLog('✅ Slash commands succesvol geregistreerd!');
+          await registerSlashCommands(this, GUILD_ID);
+          console.log('✅ [SUCCESS] ONLINE EN READY! Commando\'s werken nu.');
         } catch (regErr) {
-          logger.error(`Registratie mislukt: ${regErr.message}`);
+          console.error(`⚠️ [SLASH] Kon commands niet registreren: ${regErr.message}`);
         }
       });
 
-      startupLog('Logging into Discord con...');
+      console.log('🔐 [LOGIN] Inloggen bij Discord...');
       await this.login(CLEAN_TOKEN);
-      startupLog('ONLINE ✅');
       
-      this.setupCronJobs();
     } catch (error) {
-      logger.error('Failed to start bot:', error);
+      console.error('❌ [CRASH] Bot starten mislukt:', error);
       process.exit(1);
     }
   }
 
   startWebServer() {
-    const app = express();
-    app.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
-    app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
-  }
-
-  setupCronJobs() {
-    cron.schedule('0 0 * * *', () => checkBirthdays(this));
-    cron.schedule('*/1 * * * *', () => checkGiveaways(this));
+    try {
+      const app = express();
+      app.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
+      const port = Number(process.env.PORT || 3000);
+      app.listen(port, '0.0.0.0', () => {
+        console.log(`🌐 [WEB] Health server actief op poort ${port}`);
+      });
+    } catch (err) {
+      console.error('⚠️ Webserver crash bypassed');
+    }
   }
 }
 
