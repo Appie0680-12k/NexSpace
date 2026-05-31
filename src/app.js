@@ -15,12 +15,11 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 
 class TitanBot extends Client {
   constructor() {
-    super({
+        super({
       intents: [
-        
         GatewayIntentBits.Guilds,                        
-        GatewayIntentBits.GuildMembers,                 
-        
+        GatewayIntentBits.GuildMembers,                 // Deze staat al aan, top!
+        GatewayIntentBits.GuildInvites,                 // <-- DIT IS DE NIEUWE REGEL DIE JE TOEVOEGT!
         
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.GuildMessageReactions,        
@@ -28,10 +27,10 @@ class TitanBot extends Client {
         
         GatewayIntentBits.GuildVoiceStates,             
         
-        
         GatewayIntentBits.GuildBans,                    
       ],
     });
+
 
     this.config = config;
     this.commands = new Collection();
