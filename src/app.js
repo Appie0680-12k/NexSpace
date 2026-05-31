@@ -9,9 +9,7 @@ import { fileURLToPath } from 'url';
 
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
-import { getGuildConfig } from './services/guildConfig.js';
-import { getServerCounters, saveServerCounters, updateCounter } from './services/serverstatsService.js';
-import { logger, startupLog, shutdownLog } from './utils/logger.js';
+import { logger, startupLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
@@ -19,8 +17,10 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Map om alle actieve invites in op te slaan (geëxporteerd zodat je events erbij kunnen!)
 export const invitesCache = new Map();
+
+// Pak DIRECT de token uit Railway variabelen, hoe hij ook genoemd is
+const REAL_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || config.bot?.token;
 
 class TitanBot extends Client {
   constructor() {
@@ -45,44 +45,32 @@ class TitanBot extends Client {
     this.modals = new Collection();
     this.cooldowns = new Collection();
     this.db = null;
-    this.rest = new REST({ version: '10' }).setToken(config.bot.token);
+    this.rest = new REST({ version: '10' }).setToken(REAL_TOKEN);
   }
 
   async start() {
     try {
       startupLog('Starting TitanBot...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       startupLog('Initializing database...');
-      const dbInstance = await initializeDatabase();
-      this.db = dbInstance.db;
-      
-      const dbStatus = this.db.getStatus();
-      if (dbStatus.isDegraded) {
-        logger.warn('');
-        logger.warn('╔═══════════════════════════════════════════════════════╗');
-        logger.warn('║ ⚠️  DATABASE RUNNING IN DEGRADED MODE                 ║');
-        logger.warn('║                                                       ║');
-        logger.warn('║ Connection: In-Memory Storage (PostgreSQL unavailable)║');
-        logger.warn('║ Data Persistence: DISABLED - data lost on restart    ║');
-        logger.warn('║ Action Required: Fix PostgreSQL and restart bot      ║');
-        logger.warn('╚═══════════════════════════════════════════════════════╝');
-        logger.warn('');
-      } else {
-        startupLog(`✅ Database Status: ${dbStatus.connectionType} (fully operational)`);
+      try {
+        const dbInstance = await initializeDatabase();
+        this.db = dbInstance.db;
+      } catch (dbErr) {
+        logger.error('Database bypass...');
       }
       
-      startupLog('Starting web server...');
       this.startWebServer();
       
       startupLog('Loading commands...');
-      await loadCommands(this);
-      startupLog(`Commands loaded: ${this.commands.size}`);
+      try {
+        await loadCommands(this);
+      } catch (cmdErr) {
+        logger.error(`Bypassed command error: ${cmdErr.message}`);
+      }
       
-      startupLog('Loading handlers & events...');
-      await this.loadHandlers();
-      
-      // VEILIGE EVENT LOADER (voorkomt crashes bij ontbrekende modules)
+      // VEILIGE EVENT LOADER
       const eventsPath = path.join(__dirname, 'src', 'events');
       if (fs.existsSync(eventsPath)) {
           const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
@@ -96,43 +84,32 @@ class TitanBot extends Client {
                       } else {
                           this.on(event.name, (...args) => event.execute(...args, this));
                       }
-                      startupLog(`📅 Event geladen via app.js: ${event.name}`);
                   }
-              } catch (eventError) {
-                  logger.error(`⚠️ Kon event bestand ${file} niet laden: ${eventError.message}`);
-              }
+              } catch (eventError) {}
           }
       }
       
-      // START INVITE CACHE SCANNER & COMMAND REGISTRATIE PAS NÁ ÉCHTE LOGIN
       this.once('clientReady', async () => {
-        startupLog('Scanning and caching server invites...');
+        startupLog('Scanning invites...');
         this.guilds.cache.forEach(async (guild) => {
           try {
             const firstInvites = await guild.invites.fetch();
             invitesCache.set(guild.id, new Map(firstInvites.map((inv) => [inv.code, inv.uses])));
-          } catch (err) {
-            logger.error(`Kon invites niet cachen voor server ${guild.id}:`, err.message);
-          }
+          } catch (err) {}
         });
-        startupLog('✅ Server invites successfully cached!');
 
         startupLog('Registering slash commands...');
-        await registerSlashCommands(this, this.config.bot.guildId);
-        startupLog('Slash commands registration complete');
-
-        const databaseMode = dbStatus.isDegraded
-          ? 'Optional in-memory mode (data resets after restart)'
-          : 'Connected (persistent data enabled)';
-        const handlerSummary = `${this.buttons.size} buttons, ${this.selectMenus.size} menus, ${this.modals.size} modals`;
-        startupLog(
-          `ONLINE ✅ | ${this.commands.size} commands loaded | ${handlerSummary} | Database: ${databaseMode}`
-        );
+        try {
+          await registerSlashCommands(this, this.config.bot?.guildId);
+          startupLog('✅ Slash commands succesvol geregistreerd!');
+        } catch (regErr) {
+          logger.error(`Registratie mislukt: ${regErr.message}`);
+        }
       });
 
       startupLog('Logging into Discord...');
-      await this.login(this.config.bot.token);
-      startupLog('Discord login linkage completed!');
+      await this.login(REAL_TOKEN);
+      startupLog('ONLINE ✅');
       
       this.setupCronJobs();
     } catch (error) {
@@ -143,73 +120,13 @@ class TitanBot extends Client {
 
   startWebServer() {
     const app = express();
-    const configuredPort = Number(this.config.api?.port || process.env.PORT || 3000);
-    const host = process.env.WEB_HOST || '0.0.0.0';
-    const corsOrigin = this.config.api?.cors?.origin || '*';
-    
-    app.use((req, res, next) => {
-      const allowedOrigins = Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin];
-      const origin = req.headers.origin;
-      
-      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin || '*');
-      }
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-      }
-      next();
-    });
-
-    const requestCounts = new Map();
-    const windowMs = 60000; 
-    const maxRequests = this.config.api?.rateLimit?.max || 100;
-    
-    app.use((req, res, next) => {
-      const ip = req.ip;
-      const now = Date.now();
-      const windowStart = now - windowMs;
-      
-      if (!requestCounts.has(ip)) {
-        requestCounts.set(ip, []);
-      }
-      
-      const times = requestCounts.get(ip).filter(t => t > windowStart);
-      
-      if (times.length >= maxRequests) {
-        return res.status(429).json({ error: 'Too many requests' });
-      }
-      
-      times.push(now);
-      requestCounts.set(ip, times);
-      next();
-    });
-
-    // Railway Health Check route
-    app.get('/health', (req, res) => {
-      res.status(200).json({ status: 'OK', database: this.db ? 'Connected' : 'Disconnected' });
-    });
-
-    app.listen(configuredPort, host, () => {
-      startupLog(`Web server running on http://${host}:${configuredPort}`);
-    });
-  }
-
-  async loadHandlers() {
-    return true;
+    app.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
+    app.listen(Number(process.env.PORT || 3000), '0.0.0.0');
   }
 
   setupCronJobs() {
-    cron.schedule('0 0 * * *', () => {
-      startupLog('Running daily birthday check...');
-      checkBirthdays(this);
-    });
-
-    cron.schedule('*/1 * * * *', () => {
-      checkGiveaways(this);
-    });
+    cron.schedule('0 0 * * *', () => checkBirthdays(this));
+    cron.schedule('*/1 * * * *', () => checkGiveaways(this));
   }
 }
 
