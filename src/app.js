@@ -77,12 +77,8 @@ class TitanBot extends Client {
       await this.loadHandlers();
       startupLog('Handlers loaded');
       
-      startupLog('Logging into Discord...');
-      await this.login(this.config.bot.token);
-      startupLog('Discord login successful!');
-      
-      // START INVITE CACHE SCANNER (Zodra de client ready is)
-      this.once('ready', async () => {
+      // START INVITE CACHE SCANNER & COMMAND REGISTRATIE PAS NÁ ÉCHTE LOGIN
+      this.once('clientReady', async () => {
         startupLog('Scanning and caching server invites...');
         this.guilds.cache.forEach(async (guild) => {
           try {
@@ -93,19 +89,23 @@ class TitanBot extends Client {
           }
         });
         startupLog('✅ Server invites successfully cached!');
+
+        startupLog('Registering slash commands...');
+        await registerSlashCommands(this, this.config.bot.guildId);
+        startupLog('Slash commands registration complete');
+
+        const databaseMode = dbStatus.isDegraded
+          ? 'Optional in-memory mode (data resets after restart)'
+          : 'Connected (persistent data enabled)';
+        const handlerSummary = `${this.buttons.size} buttons, ${this.selectMenus.size} menus, ${this.modals.size} modals`;
+        startupLog(
+          `ONLINE ✅ | ${this.commands.size} commands loaded | ${handlerSummary} | Database: ${databaseMode}`
+        );
       });
-      
-      startupLog('Registering slash commands...');
-      await registerSlashCommands(this, this.config.bot.guildId);
-      startupLog('Slash commands registration complete');
-      
-      const databaseMode = dbStatus.isDegraded
-        ? 'Optional in-memory mode (data resets after restart)'
-        : 'Connected (persistent data enabled)';
-      const handlerSummary = `${this.buttons.size} buttons, ${this.selectMenus.size} menus, ${this.modals.size} modals`;
-      startupLog(
-        `ONLINE ✅ | ${this.commands.size} commands loaded | ${handlerSummary} | Database: ${databaseMode}`
-      );
+
+      startupLog('Logging into Discord...');
+      await this.login(this.config.bot.token);
+      startupLog('Discord login linkage completed!');
       
       this.setupCronJobs();
     } catch (error) {
@@ -171,7 +171,6 @@ class TitanBot extends Client {
   }
 
   async loadHandlers() {
-    // Dummy handler loader om errors te voorkomen als deze methode elders wordt aangeroepen
     return true;
   }
 
