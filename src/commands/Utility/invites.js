@@ -3,50 +3,47 @@ import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('invites')
-        .setDescription('Bekijk hoeveel mensen jij hebt uitgenodigd naar de server!')
+        .setDescription('Bekijk jouw exclusieve server uitnodiging statistieken!')
         .addUserOption(option => 
             option.setName('gebruiker')
                 .setDescription('De gebruiker waarvan je de invites wilt zien (leeg voor jezelf)')
                 .setRequired(false)),
 
     async execute(interaction) {
-        // Als er geen gebruiker wordt genoemd, kijken we naar de persoon die het commando typt
         const targetUser = interaction.options.getUser('gebruiker') || interaction.user;
-        
+        const { client, guild } = interaction;
+
         try {
-            // Haal alle actieve invites op van de server
-            const invites = await interaction.guild.invites.fetch();
-            
-            // Filter de invites die zijn aangemaakt door deze gebruiker
-            const userInvites = invites.filter(inv => inv.inviter && inv.inviter.id === targetUser.id);
+            // Haal de data op uit de bot database
+            const dbKey = `invites:${guild.id}:${targetUser.id}`;
+            const stats = (await client.db.get(dbKey)) || { joins: 0, leaves: 0 };
 
-            let totaalGebruikt = 0;
+            // Bereken de "Fake" of "Netto" score (Joins min Leaves)
+            const nettoInvites = Math.max(0, stats.joins - stats.leaves);
 
-            // Tel alle uses van de nog actieve codes op
-            userInvites.forEach(inv => {
-                totaalGebruikt += inv.uses;
-            });
-
-            // Embed maken voor een strakke look
+            // Prachtige, exclusieve Embed
             const embed = new EmbedBuilder()
-                .setColor('#5865F2')
-                .setTitle(`✉️ Invite Statistieken voor ${targetUser.username}`)
-                .setDescription(`Hier is het overzicht van de uitnodigingen:`)
+                .setColor('#1E1F22') // Super strakke, donkere Discord kleur
+                .setAuthor({ 
+                    name: `✨ EXCLUSIVE INVITE STATS`, 
+                    iconURL: guild.iconURL({ dynamic: true }) 
+                })
+                .setTitle(`✉️ Overzicht voor ${targetUser.username}`)
+                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                .setDescription(`Hieronder staan de officiële netwerkstatistieken van deze gebruiker binnen **${guild.name}**.`)
                 .addFields(
-                    { name: 'Actieve Links', value: `**${userInvites.size}** werkende links`, inline: true },
-                    { name: 'Totaal Mensen Gekomen', value: `**${totaalGebruikt}** gebruikers`, inline: true }
+                    { name: '📥 Totaal Gekomen', value: `\`\`\`📥 ${stats.joins} gebruikers\`\`\``, inline: true },
+                    { name: '📤 Totaal Verlaten', value: `\`\`\`📤 ${stats.leaves} gebruikers\`\`\``, inline: true },
+                    { name: '⭐ Netto Invites', value: `\`\`\`⭐ ${nettoInvites} overgebleven\`\`\``, inline: false }
                 )
-                .setFooter({ text: 'Volledig verwijderde invite-links worden door Discord helaas niet meegeteld.' })
+                .setFooter({ text: `NexSpace Premium Tracking System`, iconURL: client.user.displayAvatarURL() })
                 .setTimestamp();
 
             await interaction.reply({ embeds: [embed] });
 
         } catch (error) {
             console.error(error);
-            await interaction.reply({ 
-                content: 'Er ging iets mis bij het ophalen van de invites. Heeft de bot wel de juiste rechten?', 
-                ephemeral: true 
-            });
+            await interaction.reply({ content: 'Er ging iets mis bij het ophalen van de stats.', ephemeral: true });
         }
     },
 };
