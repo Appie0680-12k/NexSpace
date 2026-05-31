@@ -19,8 +19,9 @@ const __dirname = path.dirname(__filename);
 
 export const invitesCache = new Map();
 
-// Pak DIRECT de token uit Railway variabelen, hoe hij ook genoemd is
-const REAL_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || config.bot?.token;
+// Pak de token en strip eventuele foute spaties/aanhalingstekens direct weg
+const RAW_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || config.bot?.token;
+const CLEAN_TOKEN = RAW_TOKEN ? RAW_TOKEN.replace(/["']/g, "").trim() : null;
 
 class TitanBot extends Client {
   constructor() {
@@ -37,7 +38,11 @@ class TitanBot extends Client {
       ],
     });
 
+    // Dwing de token overal in het systeem erin
+    this.token = CLEAN_TOKEN;
     this.config = config;
+    if (this.config && this.config.bot) this.config.bot.token = CLEAN_TOKEN;
+
     this.commands = new Collection();
     this.events = new Collection();
     this.buttons = new Collection();
@@ -45,14 +50,19 @@ class TitanBot extends Client {
     this.modals = new Collection();
     this.cooldowns = new Collection();
     this.db = null;
-    this.rest = new REST({ version: '10' }).setToken(REAL_TOKEN);
+    this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
   }
 
   async start() {
     try {
       startupLog('Starting TitanBot...');
-      await new Promise(resolve => setTimeout(resolve, 500));
       
+      // Controleer direct of we wel een token hebben ingeladen
+      if (!CLEAN_TOKEN || CLEAN_TOKEN.length < 10) {
+        logger.error('❌ CRITIEK: Railway geeft GEEN token door aan de code! Check je Variable naam.');
+        process.exit(1);
+      }
+
       startupLog('Initializing database...');
       try {
         const dbInstance = await initializeDatabase();
@@ -107,8 +117,8 @@ class TitanBot extends Client {
         }
       });
 
-      startupLog('Logging into Discord...');
-      await this.login(REAL_TOKEN);
+      startupLog('Logging into Discord con...');
+      await this.login(CLEAN_TOKEN);
       startupLog('ONLINE ✅');
       
       this.setupCronJobs();
