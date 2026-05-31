@@ -73,6 +73,22 @@ class TitanBot extends Client {
       startupLog('Starting web server...');
       this.startWebServer();
       
+      startupLog('Logging into Discord...');
+await this.login(this.config.bot.token);
+startupLog('Discord login successful');
+            // START INVITE CACHE SCANNER
+      startupLog('Scanning and caching server invites...');
+      this.guilds.cache.forEach(async (guild) => {
+        try {
+          const firstInvites = await guild.invites.fetch();
+          invitesCache.set(guild.id, new Map(firstInvites.map((inv) => [inv.code, inv.uses])));
+        } catch (err) {
+          logger.error(`Kon invites niet cachen voor server ${guild.id}:`, err.message);
+        }
+      });
+      startupLog('✅ Server invites successfully cached!');
+
+
       startupLog('Loading commands...');
       await loadCommands(this);
       startupLog(`Commands loaded: ${this.commands.size}`);
