@@ -1,0 +1,4 @@
+3. Plak in dat bestand de volgende twee regels:
+   ```toml
+[phases.install]
+cmds = ["npm install"]
