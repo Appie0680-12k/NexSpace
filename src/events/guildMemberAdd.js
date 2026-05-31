@@ -16,10 +16,38 @@ export default {
     try {
         const { guild, user } = member;
         
+        // === LIVE INVITE TRACKER LOGICA ===
+        try {
+            // Haal de nieuwste stand van de invites op van de server
+            const newInvites = await guild.invites.fetch();
+            // Haal de oude stand op uit de cache die we in app.js hebben gemaakt
+            const oldInvites = member.client.invitesCache?.get(guild.id);
+            
+            if (oldInvites) {
+                // Zoek de invite-code die nu vaker gebruikt is dan voorheen
+                const inviteUsed = newInvites.find((inv) => inv.uses > (oldInvites.get(inv.code) || 0));
+                
+                if (inviteUsed) {
+                    logger.info(`[INVITE] ${user.tag} (${user.id}) is gejoint via de invite-code van: ${inviteUsed.inviter?.tag || 'Onbekend'} (Code: ${inviteUsed.code}, Totaal gebruikt: ${inviteUsed.uses})`);
+                    
+                    // Optioneel: Sla de invite-data op in de member, zodat het /invites commando er later bij kan
+                    member.invitedBy = inviteUsed.inviter?.id;
+                    member.inviteCode = inviteUsed.code;
+                } else {
+                    logger.info(`[INVITE] ${user.tag} is binnengekomen, maar er kon geen specifieke invite-code worden herleid (mogelijk een Custom URL of Vanity link).`);
+                }
+            }
+            
+            // Update de cache direct voor de volgende persoon die joint
+            member.client.invitesCache.set(guild.id, new Map(newInvites.map((inv) => [inv.code, inv.uses])));
+            
+        } catch (error) {
+            logger.error('Fout bij het tracken van de invite op member join:', error);
+        }
+        // ===================================
+
         const config = await getGuildConfig(member.client, guild.id);
-        
         const welcomeConfig = await getWelcomeConfig(member.client, guild.id);
-        
         const welcomeChannelId = welcomeConfig?.channelId;
 
         if (welcomeConfig?.enabled && welcomeChannelId) {
@@ -106,7 +134,6 @@ export default {
             await handleVerification(member, guild, config.verification, member.client);
         }
 
-        
         try {
             await logEvent({
                 client: member.client,
@@ -138,7 +165,6 @@ export default {
             logger.debug('Error logging member join:', error);
         }
         
-        
         try {
             const counters = await getServerCounters(member.client, guild.id);
             for (const counter of counters) {
@@ -150,7 +176,6 @@ export default {
             logger.debug('Error updating counters on member join:', error);
         }
         
-        // Restore birthday data if the member previously left
         try {
             const backupKey = `guild:${guild.id}:birthdays:left`;
             const backup = (await member.client.db.get(backupKey)) || {};
@@ -210,6 +235,3 @@ async function assignRoleSafely(member, role) {
         logger.warn(`Failed to assign role ${role.id} to member ${member.id}:`, error);
     }
 }
-
-
-
