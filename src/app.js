@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ZET HIER JOUW ECHTE DISCORD TOKEN RECHTSTREEKS TUSSEN DE QUOTES:
-const HARDCODED_TOKEN = "";
+const HARDCODED_TOKEN = "MTQ5OTQxODA2MTQ3ODgyNjA5NA.Gply8E.uhjmOZ5YNZ0KX9_HPhb0sk3aNbWP-FFF1_ztkk";
 
 class TitanBot extends Client {
   constructor() {
