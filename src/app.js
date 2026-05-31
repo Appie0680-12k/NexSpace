@@ -11,8 +11,10 @@ import { loadCommands, registerCommands as registerSlashCommands } from './handl
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ZET HIER JOUW ECHTE DISCORD TOKEN RECHTSTREEKS TUSSEN DE QUOTES:
-const HARDCODED_TOKEN = "MTQ5OTQxODA2MTQ3ODgyNjA5NA.Gply8E.uhjmOZ5YNZ0KX9_HPhb0sk3aNbWP-FFF1_ztkk";
+export const invitesCache = new Map();
+
+// We pakken de variabele en loggen de lengte (veilig, zo lekt de token niet maar weten we of hij bestaat!)
+const TEST_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
 
 class TitanBot extends Client {
   constructor() {
@@ -20,20 +22,29 @@ class TitanBot extends Client {
       intents: [
         GatewayIntentBits.Guilds,                        
         GatewayIntentBits.GuildMembers,                 
-        GatewayIntentBits.GuildInvites,                 
         GatewayIntentBits.GuildMessages,                
         GatewayIntentBits.MessageContent,               
       ],
     });
 
-    this.token = HARDCODED_TOKEN;
     this.commands = new Collection();
-    this.rest = new REST({ version: '10' }).setToken(HARDCODED_TOKEN);
+    // Als TEST_TOKEN leeg is, klapt hij er hier al uit met een duidelijke log
+    this.rest = new REST({ version: '10' }).setToken(TEST_TOKEN || "LEEG");
   }
 
   async start() {
     try {
-      console.log('🚀 [START] Bot forceren via hardcoded token...');
+      console.log('🚀 [START] Systeemcontrole...');
+      
+      if (!TEST_TOKEN) {
+        console.error('❌ [ERROR] Spoorloos: Railway geeft GEEN enkele variabele door aan de code. De token staat leeg in het geheugen!');
+      } else {
+        console.log(`🔍 [INFO] Er is een token geladen! Lengte van de string is: ${TEST_TOKEN.length} tekens.`);
+        if (TEST_TOKEN.includes(' ') || TEST_TOKEN.includes('\r')) {
+          console.error('⚠️ [WARNING] Er zitten onzichtbare spaties of enters in je Railway variabele! Maak de variabele helemaal leeg en plak hem opnieuw.');
+        }
+      }
+
       this.startWebServer();
       
       try {
@@ -41,19 +52,15 @@ class TitanBot extends Client {
         console.log(`✅ [COMMANDS] ${this.commands.size} commando's geladen.`);
       } catch (cmdErr) {}
       
-      this.once('ready', async () => {
-        console.log('📡 [DISCORD] Verbinding stabiel!');
-        try {
-          await registerSlashCommands(this, this.config?.bot?.guildId || "1234");
-          console.log('✅ ONLINE EN READY!');
-        } catch (regErr) {}
+      this.once('ready', () => {
+        console.log('✅ ONLINE EN READY!');
       });
 
-      console.log('🔐 [LOGIN] Inloggen bij Discord...');
-      await this.login(HARDCODED_TOKEN);
+      console.log('🔐 [LOGIN] Poging tot inloggen bij Discord...');
+      await this.login(TEST_TOKEN);
       
     } catch (error) {
-      console.error('❌ [CRASH] Bot starten mislukt:', error);
+      console.error('❌ [CRASH] Inloggen mislukt:', error.message);
       process.exit(1);
     }
   }
