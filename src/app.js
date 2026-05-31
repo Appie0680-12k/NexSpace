@@ -78,7 +78,7 @@ await this.login(this.config.bot.token);
 startupLog('Discord login successful');
             // START INVITE CACHE SCANNER
       startupLog('Scanning and caching server invites...');
-      this.guilds.cache.forEach(async (guild) => {
+            this.guilds.cache.forEach(async (guild) => {
         try {
           const firstInvites = await guild.invites.fetch();
           invitesCache.set(guild.id, new Map(firstInvites.map((inv) => [inv.code, inv.uses])));
@@ -86,6 +86,7 @@ startupLog('Discord login successful');
           logger.error(`Kon invites niet cachen voor server ${guild.id}:`, err.message);
         }
       });
+
       startupLog('✅ Server invites successfully cached!');
 
 
