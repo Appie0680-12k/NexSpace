@@ -5,6 +5,7 @@
   "main": "src/app.js",
   "type": "module",
   "scripts": {
+    "preinstall": "npm config set legacy-peer-deps true",
     "start": "node src/app.js",
     "test": "node --test tests/**/*.test.js",
     "migrate": "node scripts/migrate.js apply",
