@@ -117,7 +117,6 @@ class TitanBot extends Client {
   startWebServer() {
     const app = express();
     const configuredPort = Number(this.config.api?.port || process.env.PORT || 3000);
-    const maxPortRetryAttempts = Number(process.env.PORT_RETRY_ATTEMPTS || 5);
     const host = process.env.WEB_HOST || '0.0.0.0';
     const corsOrigin = this.config.api?.cors?.origin || '*';
     
@@ -141,4 +140,52 @@ class TitanBot extends Client {
     const windowMs = 60000; 
     const maxRequests = this.config.api?.rateLimit?.max || 100;
     
-    app.use((req, res, next)
+    app.use((req, res, next) => {
+      const ip = req.ip;
+      const now = Date.now();
+      const windowStart = now - windowMs;
+      
+      if (!requestCounts.has(ip)) {
+        requestCounts.set(ip, []);
+      }
+      
+      const times = requestCounts.get(ip).filter(t => t > windowStart);
+      
+      if (times.length >= maxRequests) {
+        return res.status(429).json({ error: 'Too many requests' });
+      }
+      
+      times.push(now);
+      requestCounts.set(ip, times);
+      next();
+    });
+
+    // Railway Health Check route
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'OK', database: this.db ? 'Connected' : 'Disconnected' });
+    });
+
+    app.listen(configuredPort, host, () => {
+      startupLog(`Web server running on http://${host}:${configuredPort}`);
+    });
+  }
+
+  async loadHandlers() {
+    // Dummy handler loader om errors te voorkomen als deze methode elders wordt aangeroepen
+    return true;
+  }
+
+  setupCronJobs() {
+    cron.schedule('0 0 * * *', () => {
+      startupLog('Running daily birthday check...');
+      checkBirthdays(this);
+    });
+
+    cron.schedule('*/1 * * * *', () => {
+      checkGiveaways(this);
+    });
+  }
+}
+
+const bot = new TitanBot();
+bot.start();
