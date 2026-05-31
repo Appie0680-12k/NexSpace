@@ -12,6 +12,8 @@ import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
+// Map om alle actieve invites in op te slaan voor de tracker
+const invitesCache = new Map();
 
 class TitanBot extends Client {
   constructor() {
