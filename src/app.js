@@ -82,20 +82,24 @@ class TitanBot extends Client {
       startupLog('Loading handlers & events...');
       await this.loadHandlers();
       
-      // LAAD HIER HANDMATIG ALLE EVENTS IN UIT DE MAP SRC/EVENTS
+      // VEILIGE EVENT LOADER (voorkomt crashes bij ontbrekende modules)
       const eventsPath = path.join(__dirname, 'src', 'events');
       if (fs.existsSync(eventsPath)) {
           const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
           for (const file of eventFiles) {
-              const filePath = path.join(eventsPath, file);
-              const { default: event } = await import(`file://${filePath}`);
-              if (event && event.name) {
-                  if (event.once) {
-                      this.once(event.name, (...args) => event.execute(...args, this));
-                  } else {
-                      this.on(event.name, (...args) => event.execute(...args, this));
+              try {
+                  const filePath = path.join(eventsPath, file);
+                  const { default: event } = await import(`file://${filePath}`);
+                  if (event && event.name) {
+                      if (event.once) {
+                          this.once(event.name, (...args) => event.execute(...args, this));
+                      } else {
+                          this.on(event.name, (...args) => event.execute(...args, this));
+                      }
+                      startupLog(`📅 Event geladen via app.js: ${event.name}`);
                   }
-                  startupLog(`📅 Event geladen via app.js: ${event.name}`);
+              } catch (eventError) {
+                  logger.error(`⚠️ Kon event bestand ${file} niet laden: ${eventError.message}`);
               }
           }
       }
@@ -138,7 +142,7 @@ class TitanBot extends Client {
   }
 
   startWebServer() {
-    const app = report || express();
+    const app = express();
     const configuredPort = Number(this.config.api?.port || process.env.PORT || 3000);
     const host = process.env.WEB_HOST || '0.0.0.0';
     const corsOrigin = this.config.api?.cors?.origin || '*';
@@ -210,3 +214,4 @@ class TitanBot extends Client {
 }
 
 const bot = new TitanBot();
+bot.start();
