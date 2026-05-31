@@ -25,6 +25,22 @@ export default {
         console.log(`🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js! NexSpace systemen starten op...`);
 
         // ==========================================================
+        // SYSTEEM 0: PREMIUM INVITE CACHE INLADEN (CRUCIAL VOOR TRACKER)
+        // ==========================================================
+        client.invitesCache = new Map();
+
+        // Loop door alle servers en sla alle huidige stand van de invites op in de cache
+        for (const [guildId, guild] of client.guilds.cache) {
+            try {
+                const invites = await guild.invites.fetch();
+                client.invitesCache.set(guild.id, new Map(invites.map((inv) => [inv.code, inv.uses])));
+                console.log(`📁 [INVITE-CACHE] ${invites.size} invites succesvol ingeladen voor server: ${guild.name}`);
+            } catch (err) {
+                console.log(`⚠️ [INVITE-CACHE] Kon invites niet laden voor server ${guild.name}: ${err.message}`);
+            }
+        }
+
+        // ==========================================================
         // SYSTEEM 1: NEXSPACE WORLD NEWS (ELKE 2 MINUTEN)
         // ==========================================================
         async function checkWorldNews() {
@@ -146,89 +162,4 @@ export default {
                 // Crypto data laden
                 try {
                     const cryptoRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true`);
-                    const cryptoData = await cryptoRes.json();
-
-                    for (const ticker of CRYPTO_TICKERS) {
-                        const data = cryptoData[ticker.id];
-                        if (data) {
-                            const price = data.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                            const change = data.usd_24h_change.toFixed(2);
-                            const isPositive = parseFloat(change) >= 0;
-                            const trendEmoji = isPositive ? '🟩 📈' : '🟥 📉';
-                            const prefix = isPositive ? '+' : '';
-
-                            tableRows.push(`${trendEmoji} **${ticker.name}**\n\`$${price}\` | \`${prefix}${change}%\``);
-                        }
-                    }
-                } catch (err) {
-                    console.error('Kon crypto data niet laden:', err);
-                }
-
-                // Aandelen data laden
-                for (const stock of STOCK_TICKERS) {
-                    try {
-                        const stockRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=1d`);
-                        const stockData = await stockRes.json();
-                        
-                        const meta = stockData.chart.result[0].meta;
-                        const price = meta.regularMarketPrice.toFixed(2);
-                        const prevClose = meta.previousClose;
-                        const changePercent = (((meta.regularMarketPrice - prevClose) / prevClose) * 100).toFixed(2);
-                        
-                        const isPositive = parseFloat(changePercent) >= 0;
-                        const trendEmoji = isPositive ? '🟩 📈' : '🟥 📉';
-                        const prefix = isPositive ? '+' : '';
-
-                        tableRows.push(`${trendEmoji} **${stock.name}**\n\`$${price}\` | \`${prefix}${changePercent}%\``);
-                    } catch (err) {
-                        console.error(`Kon aandeel data voor ${stock.symbol} niet laden:`, err);
-                    }
-                }
-
-                if (tableRows.length === 0) return;
-
-                const marketEmbed = new EmbedBuilder()
-                    .setTitle('📊 NEXSPACE INTELLIGENCE | REAL-TIME MARKETS')
-                    .setDescription(`Welkom op de NexSpace Trading Terminal. Hieronder vind je de realtime koersen van de belangrijkste crypto's en tech-aandelen.\n\n*Dit schema wordt elke 3 minuten automatisch live bijgewerkt.*\n\n🟢 **Status:** DATAFEED LIVE\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` + tableRows.join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'))
-                    .setColor('#00fbff')
-                    .setTimestamp()
-                    .setFooter({ text: 'NexSpace Financial Systems • Live Market Feed' });
-
-                client.guilds.cache.forEach(async (guild) => {
-                    const marketChannel = guild.channels.cache.find(c => c.name === 'aandelen-koers');
-                    if (!marketChannel) return;
-
-                    if (!liveMessage) {
-                        const recentMessages = await marketChannel.messages.fetch({ limit: 10 });
-                        const botMsg = recentMessages.find(m => m.author.id === client.user.id);
-                        if (botMsg) liveMessage = botMsg;
-                    }
-
-                    if (liveMessage) {
-                        await liveMessage.edit({ content: null, embeds: [marketEmbed] }).catch(() => { liveMessage = null; });
-                    } else {
-                        liveMessage = await marketChannel.send({ embeds: [marketEmbed] });
-                    }
-                });
-
-            } catch (error) {
-                console.error('Algemene fout bij markt-update:', error);
-            }
-        }
-
-        // ==========================================================
-        // START DE CHECKS EN GEOPTIMALISEERDE TIMERS DIRECT
-        // ==========================================================
-        // 1. Wereldnieuws (Elke 2 minuten)
-        checkWorldNews();
-        setInterval(checkWorldNews, 2 * 60 * 1000);
-
-        // 2. Uitgebreid Financieel Nieuws (Elke 2 minuten)
-        checkFinanceNews();
-        setInterval(checkFinanceNews, 2 * 60 * 1000);
-
-        // 3. Koersen live-ticker (Elke 3 minuten)
-        updateMarkets();
-        setInterval(updateMarkets, 3 * 60 * 1000);
-    }
-};
+                    const cryptoData = await
