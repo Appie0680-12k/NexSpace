@@ -3,6 +3,9 @@ import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
 import cron from 'node-cron';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import config from './config/application.js';
 import { initializeDatabase } from './utils/database.js';
@@ -12,6 +15,9 @@ import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { checkBirthdays } from './services/birthdayService.js';
 import { checkGiveaways } from './services/giveawayService.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Map om alle actieve invites in op te slaan (geëxporteerd zodat je events erbij kunnen!)
 export const invitesCache = new Map();
@@ -73,9 +79,26 @@ class TitanBot extends Client {
       await loadCommands(this);
       startupLog(`Commands loaded: ${this.commands.size}`);
       
-      startupLog('Loading handlers...');
+      startupLog('Loading handlers & events...');
       await this.loadHandlers();
-      startupLog('Handlers loaded');
+      
+      // LAAD HIER HANDMATIG ALLE EVENTS IN UIT DE MAP SRC/EVENTS
+      const eventsPath = path.join(__dirname, 'src', 'events');
+      if (fs.existsSync(eventsPath)) {
+          const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+          for (const file of eventFiles) {
+              const filePath = path.join(eventsPath, file);
+              const { default: event } = await import(`file://${filePath}`);
+              if (event && event.name) {
+                  if (event.once) {
+                      this.once(event.name, (...args) => event.execute(...args, this));
+                  } else {
+                      this.on(event.name, (...args) => event.execute(...args, this));
+                  }
+                  startupLog(`📅 Event geladen via app.js: ${event.name}`);
+              }
+          }
+      }
       
       // START INVITE CACHE SCANNER & COMMAND REGISTRATIE PAS NÁ ÉCHTE LOGIN
       this.once('clientReady', async () => {
@@ -115,7 +138,7 @@ class TitanBot extends Client {
   }
 
   startWebServer() {
-    const app = express();
+    const app = report || express();
     const configuredPort = Number(this.config.api?.port || process.env.PORT || 3000);
     const host = process.env.WEB_HOST || '0.0.0.0';
     const corsOrigin = this.config.api?.cors?.origin || '*';
@@ -187,4 +210,3 @@ class TitanBot extends Client {
 }
 
 const bot = new TitanBot();
-bot.start();
