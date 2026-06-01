@@ -5,7 +5,6 @@ import { formatWelcomeMessage } from '../utils/welcome.js';
 import { logEvent, EVENT_TYPES } from '../services/loggingService.js';
 import { getServerCounters, updateCounter } from '../services/serverstatsService.js';
 import { getGuildBirthdays, deleteBirthday } from '../utils/database.js';
-import { deleteUserLevelData } from '../services/leveling.js';
 import { logger } from '../utils/logger.js';
 
 export default {
@@ -18,27 +17,26 @@ export default {
         
         // === LIVE PREMIUM INVITE LEAVE TRACKER ===
         try {
-            const inviteKey = `invited-by:${guild.id}:${user.id}`;
-            const inviterId = await member.client.db.get(inviteKey);
+            if (member.client.db) {
+                const inviteKey = `invited-by:${guild.id}:${user.id}`;
+                const inviterId = await member.client.db.get(inviteKey);
 
-            if (inviterId) {
-                const dbKey = `invites:${guild.id}:${inviterId}`;
-                const currentStats = (await member.client.db.get(dbKey)) || { joins: 0, leaves: 0 };
-                
-                // Voeg een leave toe aan de statistieken van de uitnodiger
-                currentStats.leaves += 1;
-                await member.client.db.set(dbKey, currentStats);
+                if (inviterId) {
+                    const dbKey = `invites:${guild.id}:${inviterId}`;
+                    const currentStats = (await member.client.db.get(dbKey)) || { joins: 0, leaves: 0 };
+                    
+                    currentStats.leaves += 1;
+                    await member.client.db.set(dbKey, currentStats);
+                    await member.client.db.delete(inviteKey);
 
-                // Ruim de tijdelijke koppeling netjes op
-                await member.client.db.delete(inviteKey);
-
-                logger.info(`[LEAVE] ${user.tag} heeft de server verlaten. Uitnodiger <@${inviterId}> heeft nu een leave geregistreerd (Totaal leaves: ${currentStats.leaves}).`);
+                    logger.info(`[LEAVE] ${user.tag} heeft de server verlaten. Uitnodiger <@${inviterId}> heeft nu een leave geregistreerd.`);
+                }
             }
         } catch (error) {
             logger.error('Fout bij het verwerken van de leave invite-straf:', error);
         }
-        // ==========================================
         
+        // === GOODBYE MESSAGES ===
         const welcomeConfig = await getWelcomeConfig(member.client, guild.id);
         const goodbyeChannelId = welcomeConfig?.goodbyeChannelId;
 
@@ -100,6 +98,7 @@ export default {
             }
         }
         
+        // === LOG EVENT ===
         try {
             await logEvent({
                 client: member.client,
@@ -109,21 +108,9 @@ export default {
                     description: `${user.tag} left the server`,
                     userId: user.id,
                     fields: [
-                        {
-                            name: '👤 Member',
-                            value: `${user.tag} (${user.id})`,
-                            inline: true
-                        },
-                        {
-                            name: '👥 Member Count',
-                            value: guild.memberCount.toString(),
-                            inline: true
-                        },
-                        {
-                            name: '📅 Joined',
-                            value: `<t:${Math.floor((member.joinedTimestamp || 0) / 1000)}:R>`,
-                            inline: true
-                        }
+                        { name: '👤 Member', value: `${user.tag} (${user.id})`, inline: true },
+                        { name: '👥 Member Count', value: guild.memberCount.toString(), inline: true },
+                        { name: '📅 Joined', value: `<t:${Math.floor((member.joinedTimestamp || 0) / 1000)}:R>`, inline: true }
                     ]
                 }
             });
@@ -131,6 +118,7 @@ export default {
             logger.debug('Error logging member leave:', error);
         }
         
+        // === SERVER STATS COUNTERS ===
         try {
             const counters = await getServerCounters(member.client, guild.id);
             for (const counter of counters) {
@@ -142,37 +130,30 @@ export default {
             logger.debug('Error updating counters on member leave:', error);
         }
         
+        // === BIRTHDAYS CLEANUP ===
         try {
             const birthdays = await getGuildBirthdays(member.client, guild.id);
-            if (birthdays[user.id]) {
+            if (birthdays && birthdays[user.id] && member.client.db) {
                 const backupKey = `guild:${guild.id}:birthdays:left`;
                 const backup = (await member.client.db.get(backupKey)) || {};
                 backup[user.id] = birthdays[user.id];
                 await member.client.db.set(backupKey, backup);
                 await deleteBirthday(member.client, guild.id, user.id);
-                logger.debug(`Birthday backed up and removed for user ${user.id} in guild ${guild.id}`);
             }
         } catch (error) {
             logger.debug('Error handling birthday on member leave:', error);
         }
         
+        // === APPLICATIONS CLEANUP ===
         try {
             const userApplications = await getUserApplications(member.client, guild.id, user.id);
             if (userApplications && userApplications.length > 0) {
                 for (const app of userApplications) {
                     await deleteApplication(member.client, guild.id, app.id, user.id);
                 }
-                logger.debug(`Removed ${userApplications.length} applications for user ${user.id} in guild ${guild.id}`);
             }
         } catch (error) {
             logger.debug('Error handling applications on member leave:', error);
-        }
-
-        try {
-            await deleteUserLevelData(member.client, guild.id, user.id);
-            logger.debug(`Removed leveling data for user ${user.id} in guild ${guild.id}`);
-        } catch (error) {
-            logger.debug('Error handling leveling data on member leave:', error);
         }
         
     } catch (error) {
