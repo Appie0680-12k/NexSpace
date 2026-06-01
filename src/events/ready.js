@@ -1,5 +1,4 @@
-import { Events, EmbedBuilder, Collection } from 'discord.js';
-import { invitesCache } from './inviteTracker.js';
+import { Events, EmbedBuilder } from 'discord.js';
 
 // De nieuwsbronnen op de achtergrond
 const WORLD_NEWS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen';
@@ -18,21 +17,15 @@ let liveMessage = null;
 
 // Ingebouwde XML parser
 async function fetchRssFeed(url) {
-
     try {
-
         const response = await fetch(url);
-
         if (!response.ok) return null;
 
         const text = await response.text();
-
         const items = text.split('<item>');
-
         const parsedItems = [];
 
         for (let i = 1; i < items.length; i++) {
-
             const item = items[i];
 
             const title =
@@ -53,7 +46,6 @@ async function fetchRssFeed(url) {
                 item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1];
 
             if (title && link) {
-
                 parsedItems.push({
                     title,
                     link,
@@ -63,107 +55,108 @@ async function fetchRssFeed(url) {
                 });
             }
         }
-
         return { items: parsedItems };
-
     } catch (e) {
         return null;
     }
 }
 
 export default {
-
     name: Events.ClientReady,
     once: true,
 
     async execute(client) {
-
         console.log(
             `🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js!`
         );
 
         // ==========================================================
-        // INVITE CACHE LOADER
-        // ==========================================================
-
-        for (const guild of client.guilds.cache.values()) {
-
-            try {
-
-                const invites =
-                    await guild.invites.fetch();
-
-                invitesCache.set(
-                    guild.id,
-                    new Collection(
-                        invites.map(inv => [
-                            inv.code,
-                            inv.uses
-                        ])
-                    )
-                );
-
-                console.log(
-                    `[INVITES] Cache geladen voor ${guild.name}`
-                );
-
-            } catch (err) {
-
-                console.log(
-                    `[INVITES ERROR] ${guild.name}:`,
-                    err.message
-                );
-            }
-        }
-
-        // ==========================================================
         // SYSTEEM 1: WERELDNIEUWS
         // ==========================================================
-
         async function checkWorldNews() {
-
             try {
-
-                const feed =
-                    await fetchRssFeed(WORLD_NEWS_URL);
-
+                const feed = await fetchRssFeed(WORLD_NEWS_URL);
                 if (!feed || !feed.items?.length) return;
 
-                const recentItems =
-                    feed.items.slice(0, 3);
+                const recentItems = feed.items.slice(0, 3);
 
                 for (const item of recentItems) {
-
-                    const articleId =
-                        item.guid || item.link;
+                    const articleId = item.guid || item.link;
 
                     if (!sentWorldArticles.has(articleId)) {
-
                         if (sentWorldArticles.size === 0) {
-
                             recentItems.forEach(i =>
-                                sentWorldArticles.add(
-                                    i.guid || i.link
-                                )
+                                sentWorldArticles.add(i.guid || i.link)
                             );
-
                             break;
                         }
 
                         sentWorldArticles.add(articleId);
 
                         client.guilds.cache.forEach(async guild => {
-
-                            const nieuwsChannel =
-                                guild.channels.cache.find(
-                                    c => c.name === 'wereldnieuws'
-                                );
-
+                            const nieuwsChannel = guild.channels.cache.find(
+                                c => c.name === 'wereldnieuws'
+                            );
                             if (!nieuwsChannel) return;
 
-                            const embed =
-                                new EmbedBuilder()
-                                    .setTitle(`🌐 ${item.title}`)
+                            const embed = new EmbedBuilder()
+                                .setTitle(`🌐 ${item.title}`)
+                                .setURL(item.link)
+                                .setDescription(
+                                    item.contentSnippet ||
+                                    'Klik op de link om het artikel te lezen.'
+                                )
+                                .setColor('#00fbff')
+                                .setTimestamp(
+                                    item.pubDate ? new Date(item.pubDate) : new Date()
+                                );
+
+                            await nieuwsChannel.send({
+                                content: `🔗 ${item.link}`,
+                                embeds: [embed]
+                            });
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('World news error:', err.message);
+            }
+        }
+
+        // ==========================================================
+        // SYSTEEM 2: FINANCIEEL NIEUWS
+        // ==========================================================
+        async function checkFinanceNews() {
+            try {
+                for (const url of FINANCE_FEEDS) {
+                    const feed = await fetchRssFeed(url);
+                    if (!feed || !feed.items?.length) continue;
+
+                    const recentItems = feed.items.slice(0, 3);
+
+                    for (const item of recentItems) {
+                        const articleId = item.guid || item.link;
+
+                        if (!sentFinanceArticles.has(articleId)) {
+                            if (sentFinanceArticles.size === 0) {
+                                recentItems.forEach(i =>
+                                    sentFinanceArticles.add(i.guid || i.link)
+                                );
+                                continue;
+                            }
+
+                            sentFinanceArticles.add(articleId);
+
+                            client.guilds.cache.forEach(async guild => {
+                                const financeChannel = guild.channels.cache.find(
+                                    c =>
+                                        c.name === 'financiële-nieuws' ||
+                                        c.name === 'financiele-nieuws'
+                                );
+                                if (!financeChannel) return;
+
+                                const embed = new EmbedBuilder()
+                                    .setTitle(`📊 ${item.title}`)
                                     .setURL(item.link)
                                     .setDescription(
                                         item.contentSnippet ||
@@ -171,272 +164,95 @@ export default {
                                     )
                                     .setColor('#00fbff')
                                     .setTimestamp(
-                                        item.pubDate
-                                            ? new Date(item.pubDate)
-                                            : new Date()
+                                        item.pubDate ? new Date(item.pubDate) : new Date()
                                     );
-
-                            await nieuwsChannel.send({
-                                content:
-                                    `🔗 ${item.link}`,
-                                embeds: [embed]
-                            });
-                        });
-                    }
-                }
-
-            } catch (err) {
-
-                console.error(
-                    'World news error:',
-                    err.message
-                );
-            }
-        }
-
-        // ==========================================================
-        // SYSTEEM 2: FINANCIEEL NIEUWS
-        // ==========================================================
-
-        async function checkFinanceNews() {
-
-            try {
-
-                for (const url of FINANCE_FEEDS) {
-
-                    const feed =
-                        await fetchRssFeed(url);
-
-                    if (!feed || !feed.items?.length)
-                        continue;
-
-                    const recentItems =
-                        feed.items.slice(0, 3);
-
-                    for (const item of recentItems) {
-
-                        const articleId =
-                            item.guid || item.link;
-
-                        if (!sentFinanceArticles.has(articleId)) {
-
-                            if (sentFinanceArticles.size === 0) {
-
-                                recentItems.forEach(i =>
-                                    sentFinanceArticles.add(
-                                        i.guid || i.link
-                                    )
-                                );
-
-                                continue;
-                            }
-
-                            sentFinanceArticles.add(articleId);
-
-                            client.guilds.cache.forEach(async guild => {
-
-                                const financeChannel =
-                                    guild.channels.cache.find(
-                                        c =>
-                                            c.name === 'financiële-nieuws' ||
-                                            c.name === 'financiele-nieuws'
-                                    );
-
-                                if (!financeChannel) return;
-
-                                const embed =
-                                    new EmbedBuilder()
-                                        .setTitle(`📊 ${item.title}`)
-                                        .setURL(item.link)
-                                        .setDescription(
-                                            item.contentSnippet ||
-                                            'Klik op de link om het artikel te lezen.'
-                                        )
-                                        .setColor('#00fbff')
-                                        .setTimestamp(
-                                            item.pubDate
-                                                ? new Date(item.pubDate)
-                                                : new Date()
-                                        );
 
                                 await financeChannel.send({
-                                    content:
-                                        `🔗 ${item.link}`,
+                                    content: `🔗 ${item.link}`,
                                     embeds: [embed]
                                 });
                             });
                         }
                     }
                 }
-
             } catch (err) {
-
-                console.error(
-                    'Finance news error:',
-                    err.message
-                );
+                console.error('Finance news error:', err.message);
             }
         }
 
         // ==========================================================
         // SYSTEEM 3: LIVE MARKETS
         // ==========================================================
-
         async function updateMarkets() {
-
             try {
-
-                let marketDescription =
-                    '**🪙 CRYPTO MARKETS**\n';
+                let marketDescription = '**🪙 CRYPTO MARKETS**\n';
 
                 try {
-
-                    const btcRes =
-                        await fetch(
-                            'https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'
-                        );
-
-                    const ethRes =
-                        await fetch(
-                            'https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT'
-                        );
+                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
+                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT');
 
                     if (btcRes.ok && ethRes.ok) {
+                        const btcData = await btcRes.json();
+                        const ethData = await ethRes.json();
 
-                        const btcData =
-                            await btcRes.json();
+                        const btcPrice = parseFloat(btcData.lastPrice).toLocaleString('en-US', {
+                            style: 'currency',
+                            currency: 'USD'
+                        });
 
-                        const ethData =
-                            await ethRes.json();
+                        const ethPrice = parseFloat(ethData.lastPrice).toLocaleString('en-US', {
+                            style: 'currency',
+                            currency: 'USD'
+                        });
 
-                        const btcPrice =
-                            parseFloat(
-                                btcData.lastPrice
-                            ).toLocaleString(
-                                'en-US',
-                                {
-                                    style: 'currency',
-                                    currency: 'USD'
-                                }
-                            );
-
-                        const ethPrice =
-                            parseFloat(
-                                ethData.lastPrice
-                            ).toLocaleString(
-                                'en-US',
-                                {
-                                    style: 'currency',
-                                    currency: 'USD'
-                                }
-                            );
-
-                        marketDescription +=
-                            `• BTC: ${btcPrice}\n`;
-
-                        marketDescription +=
-                            `• ETH: ${ethPrice}\n\n`;
-
+                        marketDescription += `• BTC: ${btcPrice}\n`;
+                        marketDescription += `• ETH: ${ethPrice}\n\n`;
                     } else {
-
-                        marketDescription +=
-                            '• Crypto data unavailable\n\n';
+                        marketDescription += '• Crypto data unavailable\n\n';
                     }
-
                 } catch {
-
-                    marketDescription +=
-                        '• Crypto API offline\n\n';
+                    marketDescription += '• Crypto API offline\n\n';
                 }
 
-                marketDescription +=
-                    '**📈 STOCKS**\n';
-
-                marketDescription +=
-                    '• Nvidia: $135.20\n';
-
-                marketDescription +=
-                    '• Apple: $189.30\n';
-
-                marketDescription +=
-                    '• Tesla: $175.50\n';
+                marketDescription += '**📈 STOCKS**\n';
+                marketDescription += '• Nvidia: $135.20\n';
+                marketDescription += '• Apple: $189.30\n';
+                marketDescription += '• Tesla: $175.50\n';
 
                 client.guilds.cache.forEach(async guild => {
-
-                    const marketChannel =
-                        guild.channels.cache.find(
-                            c =>
-                                c.name === 'live-koersen' ||
-                                c.name === 'live-markets'
-                        );
-
+                    const marketChannel = guild.channels.cache.find(
+                        c => c.name === 'live-koersen' || c.name === 'live-markets'
+                    );
                     if (!marketChannel) return;
 
-                    const embed =
-                        new EmbedBuilder()
-                            .setTitle(
-                                '📊 LIVE FINANCIAL MARKETS'
-                            )
-                            .setDescription(
-                                marketDescription
-                            )
-                            .setColor('#00fbff')
-                            .setTimestamp();
+                    const embed = new EmbedBuilder()
+                        .setTitle('📊 LIVE FINANCIAL MARKETS')
+                        .setDescription(marketDescription)
+                        .setColor('#00fbff')
+                        .setTimestamp();
 
                     if (!liveMessage) {
-
-                        const messages =
-                            await marketChannel.messages
-                                .fetch({ limit: 5 })
-                                .catch(() => []);
-
-                        const existingBotMessage =
-                            messages.find(
-                                m =>
-                                    m.author.id ===
-                                    client.user.id
-                            );
+                        const messages = await marketChannel.messages.fetch({ limit: 5 }).catch(() => []);
+                        const existingBotMessage = messages.find(m => m.author.id === client.user.id);
 
                         if (existingBotMessage) {
-
-                            liveMessage =
-                                existingBotMessage;
-
-                            await liveMessage.edit({
-                                embeds: [embed]
-                            });
-
+                            liveMessage = existingBotMessage;
+                            await liveMessage.edit({ embeds: [embed] });
                         } else {
-
-                            liveMessage =
-                                await marketChannel.send({
-                                    embeds: [embed]
-                                });
+                            liveMessage = await marketChannel.send({ embeds: [embed] });
                         }
-
                     } else {
-
-                        await liveMessage
-                            .edit({
-                                embeds: [embed]
-                            })
-                            .catch(() => {
-                                liveMessage = null;
-                            });
+                        await liveMessage.edit({ embeds: [embed] }).catch(() => {
+                            liveMessage = null;
+                        });
                     }
                 });
-
             } catch (err) {
-
-                console.error(
-                    'Markets error:',
-                    err.message
-                );
+                console.error('Markets error:', err.message);
             }
         }
 
         // START SYSTEMEN
-
         checkWorldNews();
         checkFinanceNews();
         updateMarkets();
