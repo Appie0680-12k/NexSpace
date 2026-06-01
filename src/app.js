@@ -1,80 +1,336 @@
 import 'dotenv/config';
-import { Client, Collection, GatewayIntentBits } from 'discord.js';
+import {
+  Client,
+  Collection,
+  GatewayIntentBits,
+} from 'discord.js';
+
 import { REST } from '@discordjs/rest';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 import { initializeDatabase } from './utils/database.js';
-import { loadCommands, registerCommands as registerSlashCommands } from './handlers/commandLoader.js';
+import {
+  loadCommands,
+  registerCommands as registerSlashCommands,
+} from './handlers/commandLoader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const invitesCache = new Map();
 
-// Strict clean van de token uit je Railway variabelen
-const RAW_TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
-const CLEAN_TOKEN = RAW_TOKEN ? RAW_TOKEN.replace(/["']/g, "").trim() : null;
-const GUILD_ID = process.env.GUILD_ID || "1234"; 
+/* =========================================================
+   ENV CONFIG
+========================================================= */
+
+const RAW_TOKEN =
+  process.env.DISCORD_TOKEN ||
+  process.env.BOT_TOKEN ||
+  process.env.TOKEN;
+
+const CLEAN_TOKEN = RAW_TOKEN
+  ? RAW_TOKEN.replace(/["']/g, '').trim()
+  : null;
+
+const GUILD_ID = process.env.GUILD_ID || null;
+const PORT = process.env.PORT || 3000;
+
+/* =========================================================
+   TITAN BOT CLASS
+========================================================= */
 
 class TitanBot extends Client {
   constructor() {
     super({
       intents: [
-        GatewayIntentBits.Guilds,                        
-        GatewayIntentBits.GuildMembers,                 
-        GatewayIntentBits.GuildInvites,                 
-        GatewayIntentBits.GuildMessages,                
-        GatewayIntentBits.MessageContent,               
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildInvites,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
       ],
     });
 
     this.token = CLEAN_TOKEN;
+
     this.commands = new Collection();
     this.events = new Collection();
     this.buttons = new Collection();
     this.selectMenus = new Collection();
     this.modals = new Collection();
     this.cooldowns = new Collection();
+
     this.db = null;
-    this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
+
+    this.rest = new REST({ version: '10' }).setToken(
+      CLEAN_TOKEN
+    );
   }
+
+  /* =========================================================
+     START BOT
+  ========================================================= */
 
   async start() {
     try {
-      console.log('🚀 [START] TitanBot startvolgorde initialiseren...');
-      
+      console.log('\n🚀 TitanBot wordt gestart...\n');
+
+      /* =========================
+         TOKEN CHECK
+      ========================= */
+
       if (!CLEAN_TOKEN) {
-        console.error('❌ [ERROR] Geen token gevonden in Railway variabelen!');
+        console.error(
+          '❌ Geen Discord token gevonden in Railway variables.'
+        );
         process.exit(1);
       }
 
-      console.log('🗄️ [DATABASE] Verbinden met database...');
+      console.log('✅ Token gevonden.');
+
+      /* =========================
+         DATABASE
+      ========================= */
+
+      console.log('🗄️ Verbinden met database...');
+
       try {
         const dbInstance = await initializeDatabase();
+
         this.db = dbInstance.db;
-        console.log('✅ [DATABASE] Verbinding succesvol tot stand gebracht.');
-      } catch (dbErr) {
-        console.error(`⚠️ [DATABASE] Bypass geactiveerd: ${dbErr.message}`);
+
+        console.log(
+          '✅ Database verbinding succesvol.'
+        );
+      } catch (dbError) {
+        console.error(
+          `⚠️ Database fout: ${dbError.message}`
+        );
       }
+
+      /* =========================
+         WEB SERVER
+      ========================= */
 
       this.startWebServer();
-      
-      console.log('📂 [COMMANDS] Laden van commando\'s...');
+
+      /* =========================
+         COMMANDS
+      ========================= */
+
+      console.log('📂 Commands laden...');
+
       try {
         await loadCommands(this);
-        console.log(`✅ [COMMANDS] ${this.commands.size} commando's succesvol geladen.`);
-      } catch (cmdErr) {
-        console.error(`⚠️ [COMMANDS] Fout bij inladen: ${cmdErr.message}`);
+
+        console.log(
+          `✅ ${this.commands.size} commands geladen.`
+        );
+      } catch (commandError) {
+        console.error(
+          `❌ Commands fout: ${commandError.message}`
+        );
       }
-      
-      console.log('📅 [EVENTS] Handlers en events koppelen...');
-      // Controleer of de events map direct in de root of in src/ staat
-      const eventsPath = fs.existsSync(path.join(__dirname, 'events')) 
-        ? path.join(__dirname, 'events') 
+
+      /* =========================
+         EVENTS
+      ========================= */
+
+      console.log('📅 Events laden...');
+
+      await this.loadEvents();
+
+      /* =========================
+         LOGIN
+      ========================= */
+
+      console.log('🔐 Inloggen bij Discord...');
+
+      await this.login(CLEAN_TOKEN);
+
+      console.log(
+        `✅ Bot online als ${this.user.tag}`
+      );
+
+      /* =========================
+         REGISTER SLASH COMMANDS
+      ========================= */
+
+      try {
+        console.log(
+          '⚡ Slash commands registreren...'
+        );
+
+        await registerSlashCommands(this);
+
+        console.log(
+          '✅ Slash commands geregistreerd.'
+        );
+      } catch (registerError) {
+        console.error(
+          `⚠️ Slash command fout: ${registerError.message}`
+        );
+      }
+    } catch (err) {
+      console.error(
+        `❌ Kritieke startup fout: ${err.message}`
+      );
+
+      console.error(err);
+
+      process.exit(1);
+    }
+  }
+
+  /* =========================================================
+     LOAD EVENTS
+  ========================================================= */
+
+  async loadEvents() {
+    try {
+      const eventsPath = fs.existsSync(
+        path.join(__dirname, 'events')
+      )
+        ? path.join(__dirname, 'events')
         : path.join(__dirname, 'src', 'events');
 
-      if (fs.existsSync(eventsPath)) {
-          const eventFiles = fs.readdirSync(eventsPath).filter(file => file
+      if (!fs.existsSync(eventsPath)) {
+        console.warn(
+          '⚠️ Geen events map gevonden.'
+        );
+        return;
+      }
+
+      const eventFiles = fs
+        .readdirSync(eventsPath)
+        .filter((file) => file.endsWith('.js'));
+
+      if (!eventFiles.length) {
+        console.warn(
+          '⚠️ Geen event bestanden gevonden.'
+        );
+        return;
+      }
+
+      for (const file of eventFiles) {
+        try {
+          const filePath = path.join(
+            eventsPath,
+            file
+          );
+
+          const eventModule = await import(
+            pathToFileURL(filePath).href
+          );
+
+          const event =
+            eventModule.default || eventModule;
+
+          if (!event?.name || !event?.execute) {
+            console.warn(
+              `⚠️ Ongeldig event bestand: ${file}`
+            );
+            continue;
+          }
+
+          if (event.once) {
+            this.once(event.name, (...args) =>
+              event.execute(...args, this)
+            );
+          } else {
+            this.on(event.name, (...args) =>
+              event.execute(...args, this)
+            );
+          }
+
+          this.events.set(event.name, event);
+
+          console.log(
+            `✅ Event geladen: ${event.name}`
+          );
+        } catch (eventError) {
+          console.error(
+            `❌ Event fout (${file}): ${eventError.message}`
+          );
+        }
+      }
+
+      console.log(
+        `🎉 ${this.events.size} events geladen.`
+      );
+    } catch (err) {
+      console.error(
+        `❌ Events loader fout: ${err.message}`
+      );
+    }
+  }
+
+  /* =========================================================
+     WEB SERVER
+  ========================================================= */
+
+  startWebServer() {
+    const app = express();
+
+    app.get('/', (req, res) => {
+      res.send('TitanBot draait succesvol.');
+    });
+
+    app.get('/health', (req, res) => {
+      res.json({
+        status: 'online',
+        bot: this.user?.tag || 'starting',
+        uptime: process.uptime(),
+      });
+    });
+
+    app.listen(PORT, () => {
+      console.log(
+        `🌐 Webserver actief op poort ${PORT}`
+      );
+    });
+  }
+}
+
+/* =========================================================
+   CREATE BOT
+========================================================= */
+
+const bot = new TitanBot();
+
+/* =========================================================
+   ERROR HANDLERS
+========================================================= */
+
+process.on('unhandledRejection', (reason) => {
+  console.error(
+    '❌ Unhandled Promise Rejection:',
+    reason
+  );
+});
+
+process.on('uncaughtException', (error) => {
+  console.error(
+    '❌ Uncaught Exception:',
+    error
+  );
+});
+
+process.on('SIGINT', () => {
+  console.log('\n🛑 Bot wordt afgesloten...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Railway shutdown ontvangen...');
+  process.exit(0);
+});
+
+/* =========================================================
+   START BOT
+========================================================= */
+
+bot.start();
