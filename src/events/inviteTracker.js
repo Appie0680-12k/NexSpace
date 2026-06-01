@@ -30,11 +30,11 @@ export default {
                 const inviter = usedInvite.inviter;
                 
                 if (client.db) {
-                    // 1. Koppel het nieuwe lid aan de uitnodiger in de database (nodig voor als ze leaven!)
+                    // Koppel het nieuwe lid aan de uitnodiger in de database
                     const inviteKey = `invited-by:${guild.id}:${member.user.id}`;
                     await client.db.set(inviteKey, inviter.id);
 
-                    // 2. Update de statistieken van de uitnodiger (+1 join)
+                    // Update de statistieken van de uitnodiger (+1 join)
                     const dbKey = `invites:${guild.id}:${inviter.id}`;
                     const currentStats = (await client.db.get(dbKey)) || { joins: 0, leaves: 0 };
                     
@@ -44,20 +44,21 @@ export default {
                     console.log(`[DATABASE] ${member.user.tag} opgeslagen onder inviter ${inviter.tag}. Joins nu: ${currentStats.joins}`);
                 }
 
-                // Stuur het bericht naar je logkanaal (vervang dit ID door jouw kanaal-ID!)
-                const logChannelId = '123456789012345678'; 
+                // Jouw specifieke Kanaal-ID is hier nu gekoppeld:
+                const logChannelId = '1499356353460834384'; 
                 const channel = guild.channels.cache.get(logChannelId);
                 
                 if (channel) {
                     const embed = new EmbedBuilder()
                         .setTitle('📥 Nieuw Lid Geregistreerd')
-                        .setDescription(`Welkom <@${member.user.id}>!`)
+                        .setDescription(`Welkom <@${member.user.id}> in de server!`)
                         .setColor('#00fbff')
                         .addFields(
                             { name: '👤 Gebruiker', value: `${member.user.tag}`, inline: true },
                             { name: '✉️ Genodigd door', value: `<@${inviter.id}>`, inline: true },
                             { name: '🔗 Code', value: `\`${usedInvite.code}\``, inline: true }
                         )
+                        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
                         .setTimestamp();
 
                     await channel.send({ embeds: [embed] }).catch(() => {});
