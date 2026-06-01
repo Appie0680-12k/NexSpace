@@ -4,13 +4,14 @@ import {
 } from 'discord.js';
 
 export default {
+
     data: new SlashCommandBuilder()
         .setName('invites')
-        .setDescription('Bekijk je invites')
+        .setDescription('Bekijk invites')
         .addUserOption(option =>
             option
                 .setName('user')
-                .setDescription('Bekijk invites van iemand anders')
+                .setDescription('Bekijk invites van iemand')
                 .setRequired(false)
         ),
 
@@ -20,20 +21,24 @@ export default {
             interaction.options.getUser('user') ||
             interaction.user;
 
-        const dbKey = `invites:${interaction.guild.id}:${target.id}`;
+        const dbKey =
+            `invites:${interaction.guild.id}:${target.id}`;
 
-        const data =
+        const stats =
             (await client.db.get(dbKey)) || {
                 joins: 0,
                 leaves: 0
             };
 
-        const total = data.joins - data.leaves;
+        const total =
+            stats.joins - stats.leaves;
 
         const embed = new EmbedBuilder()
             .setColor('#00fbff')
-            .setTitle('📨 Invite Stats')
-            .setThumbnail(target.displayAvatarURL())
+            .setTitle('📨 Invite Statistieken')
+            .setThumbnail(
+                target.displayAvatarURL()
+            )
             .addFields(
                 {
                     name: 'Gebruiker',
@@ -42,12 +47,12 @@ export default {
                 },
                 {
                     name: 'Joins',
-                    value: `${data.joins}`,
+                    value: `${stats.joins}`,
                     inline: true
                 },
                 {
                     name: 'Leaves',
-                    value: `${data.leaves}`,
+                    value: `${stats.leaves}`,
                     inline: true
                 },
                 {
@@ -55,7 +60,8 @@ export default {
                     value: `${total}`,
                     inline: true
                 }
-            );
+            )
+            .setTimestamp();
 
         await interaction.reply({
             embeds: [embed]
