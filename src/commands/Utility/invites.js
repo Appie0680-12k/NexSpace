@@ -1,3 +1,6 @@
+console.log('COMMAND WERKT');
+console.log(client);
+console.log(client?.db);
 import {
     SlashCommandBuilder,
     EmbedBuilder
