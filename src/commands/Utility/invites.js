@@ -1,55 +1,64 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import {
+    SlashCommandBuilder,
+    EmbedBuilder
+} from 'discord.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('invites')
-        .setDescription('Bekijk je eigen invite statistieken of die van een ander lid')
-        .addUserOption(option => 
-            option.setName('target')
-                .setDescription('De gebruiker waarvan je de invites wilt zien')
-                .setRequired(false)),
+        .setDescription('Bekijk je invites')
+        .addUserOption(option =>
+            option
+                .setName('user')
+                .setDescription('Bekijk invites van iemand anders')
+                .setRequired(false)
+        ),
 
-    async execute(interaction) {
-        const { guild, client, user } = interaction;
-        
-        // Als er een andere gebruiker is geselecteerd, pakken we die, anders de persoon die het commando typt
-        const targetUser = interaction.options.getUser('target') || user;
+    async execute(interaction, client) {
 
-        try {
-            let totalJoins = 0;
-            let totalLeaves = 0;
+        const target =
+            interaction.options.getUser('user') ||
+            interaction.user;
 
-            // Haal de live statistieken op uit de database die de tracker bijhoudt
-            if (client.db) {
-                const dbKey = `invites:${guild.id}:${targetUser.id}`;
-                const stats = await client.db.get(dbKey);
-                
-                if (stats) {
-                    totalJoins = stats.joins || 0;
-                    totalLeaves = stats.leaves || 0;
+        const dbKey = `invites:${interaction.guild.id}:${target.id}`;
+
+        const data =
+            (await client.db.get(dbKey)) || {
+                joins: 0,
+                leaves: 0
+            };
+
+        const total = data.joins - data.leaves;
+
+        const embed = new EmbedBuilder()
+            .setColor('#00fbff')
+            .setTitle('📨 Invite Stats')
+            .setThumbnail(target.displayAvatarURL())
+            .addFields(
+                {
+                    name: 'Gebruiker',
+                    value: `${target.tag}`,
+                    inline: true
+                },
+                {
+                    name: 'Joins',
+                    value: `${data.joins}`,
+                    inline: true
+                },
+                {
+                    name: 'Leaves',
+                    value: `${data.leaves}`,
+                    inline: true
+                },
+                {
+                    name: 'Totaal',
+                    value: `${total}`,
+                    inline: true
                 }
-            }
+            );
 
-            // Netto invites berekenen (binnengekomen min weggegaan)
-            const netInvites = Math.max(0, totalJoins - totalLeaves);
-
-            const embed = new EmbedBuilder()
-                .setTitle('✨ EXCLUSIVE INVITE STATS')
-                .setDescription(`✉️ **Overzicht voor ${targetUser.username}**\n\nHieronder staan de officiële netwerkstatistieken van deze gebruiker binnen **${guild.name}**.`)
-                .setColor('#00fbff')
-                .addFields(
-                    { name: '📥 Totaal Gekomen', value: `\`\`\`📥 ${totalJoins} gebruikers\`\`\``, inline: false },
-                    { name: '📤 Totaal Verlaten', value: `\`\`\`📤 ${totalLeaves} gebruikers\`\`\``, inline: false },
-                    { name: '⭐ Netto Invites', value: `\`\`\`⭐ ${netInvites} overgebleven\`\`\``, inline: false }
-                )
-                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-                .setFooter({ text: `NexSpace Premium Tracking System | Today at ${new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}` });
-
-            return interaction.reply({ embeds: [embed] });
-
-        } catch (error) {
-            console.error('Fout bij het uitvoeren van invites commando:', error);
-            return interaction.reply({ content: '❌ Er ging iets mis bij het ophalen van de invite statistieken.', ephemeral: true });
-        }
+        await interaction.reply({
+            embeds: [embed]
+        });
     }
 };
