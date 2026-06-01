@@ -59,4 +59,413 @@ export default {
 
                         const abuseProtection = await enforceAbuseProtection(interaction, command, interaction.commandName);  
                         if (!abuseProtection.allowed) {  
-                            const formattedCooldown = formatCooldownDuration(abuseProtection.remainingMs);
+                            const formattedCooldown = formatCooldownDuration(abuseProtection.remainingMs);  
+                            throw createError(  
+                                `Risky command cooldown active for ${interaction.commandName}`,  
+                                ErrorTypes.RATE_LIMIT,  
+                                `This command is on cooldown. Please wait ${formattedCooldown} before trying again.`,  
+                                withTraceContext({  
+                                    commandName: interaction.commandName,  
+                                    subtype: 'command_cooldown',  
+                                    expected: true,  
+                                    cooldownMs: abuseProtection.remainingMs,  
+                                    cooldownWindowMs: abuseProtection.policy?.windowMs,  
+                                    cooldownMaxAttempts: abuseProtection.policy?.maxAttempts  
+                                }, interactionTraceContext)  
+                            );  
+                        }  
+
+                        let guildConfig = null;  
+                        if (interaction.guild) {  
+                            guildConfig = await getGuildConfig(client, interaction.guild.id, interactionTraceContext);  
+                            if (guildConfig?.disabledCommands?.[interaction.commandName]) {  
+                                throw createError(  
+                                    `Command ${interaction.commandName} is disabled in this guild`,  
+                                    ErrorTypes.CONFIGURATION,  
+                                    'This command has been disabled for this server.',  
+                                    withTraceContext({ commandName: interaction.commandName, guildId: interaction.guild.id }, interactionTraceContext)  
+                                );  
+                            }  
+                        }  
+
+                        await command.execute(interaction, guildConfig, client);  
+                    } catch (error) {  
+                        await handleInteractionError(interaction, error, withTraceContext({  
+                            type: 'command',  
+                            commandName: interaction.commandName  
+                        }, interactionTraceContext));  
+                    }  
+                } else if (interaction.isAutocomplete()) {  
+                    const focusedOption = interaction.options.getFocused(true);  
+                    
+                    if (interaction.commandName === 'apply' && focusedOption.name === 'application') {  
+                        try {  
+                            const { getApplicationRoles } = await import('../utils/database.js');  
+                            const roles = await getApplicationRoles(client, interaction.guildId);  
+                            const roleName = interaction.options.getString('application', false);  
+                            
+                            const filtered = roles.filter(role =>  
+                                role.enabled !== false &&   
+                                role.name.toLowerCase().startsWith(roleName?.toLowerCase() || '')  
+                            );  
+                            
+                            await interaction.respond(  
+                                filtered.slice(0, 25).map(role => ({  
+                                    name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,  
+                                    value: role.name  
+                                }))  
+                            );  
+                        } catch (error) {  
+                            logger.error('Error handling autocomplete:', {  
+                                error: error.message,  
+                                guildId: interaction.guildId,  
+                                commandName: interaction.commandName  
+                            });  
+                            await interaction.respond([]);  
+                        }  
+                    } else if (interaction.commandName === 'app-admin' && focusedOption.name === 'application') {  
+                        try {  
+                            const { getApplicationRoles } = await import('../utils/database.js');  
+                            const roles = await getApplicationRoles(client, interaction.guildId);  
+                            const appName = interaction.options.getString('application', false);  
+                            
+                            const filtered = roles.filter(role =>  
+                                role.name.toLowerCase().startsWith(appName?.toLowerCase() || '')  
+                            );  
+                            
+                            await interaction.respond(  
+                                filtered.slice(0, 25).map(role => ({  
+                                    name: `${role.name}${role.enabled === false ? ' (disabled)' : ''}`,  
+                                    value: role.name  
+                                }))  
+                            );  
+                        } catch (error) {  
+                            logger.error('Error handling app-admin autocomplete:', {  
+                                error: error.message,  
+                                guildId: interaction.guildId,  
+                                commandName: interaction.commandName  
+                            });  
+                            await interaction.respond([]);  
+                        }  
+                    } else if (interaction.commandName === 'reactroles' && focusedOption.name === 'panel') {  
+                        try {  
+                            const { getAllReactionRoleMessages, deleteReactionRoleMessage } = await import('../services/reactionRoleService.js');  
+                            const guildId = interaction.guildId;  
+                            const guild = interaction.guild;  
+                            
+                            let panels = await getAllReactionRoleMessages(client, guildId);  
+                            
+                            if (!panels || panels.length === 0) {  
+                                await interaction.respond([]);  
+                                return;  
+                            }  
+                            
+                            const validPanels = [];  
+                            for (const panel of panels) {  
+                                if (!panel.messageId || !panel.channelId) {  
+                                    continue;  
+                                }  
+                                
+                                const channel = guild.channels.cache.get(panel.channelId);  
+                                if (!channel) {  
+                                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});  
+                                    continue;  
+                                }  
+                                
+                                const msg = await channel.messages.fetch(panel.messageId).catch(() => null);  
+                                if (!msg) {  
+                                    await deleteReactionRoleMessage(client, guildId, panel.messageId).catch(() => {});  
+                                    continue;  
+                                }  
+                                validPanels.push(panel);  
+                            }  
+                            
+                            if (validPanels.length === 0) {  
+                                await interaction.respond([]);  
+                                return;  
+                            }  
+                            
+                            const choices = await Promise.all(  
+                                validPanels.slice(0, 25).map(async panel => {  
+                                    try {  
+                                        const channel = guild.channels.cache.get(panel.channelId);  
+                                        if (!channel) return null;  
+                                        
+                                        const msg = await channel.messages.fetch(panel.messageId).catch(() => null);  
+                                        if (!msg) return null;  
+                                        
+                                        const title = msg?.embeds?.[0]?.title ?? 'Untitled Panel';  
+                                        const channelName = channel?.name ?? 'unknown';  
+                                        
+                                        return {  
+                                            name: `${title} (${channelName})`.substring(0, 100),  
+                                            value: panel.messageId  
+                                        };  
+                                    } catch (e) {  
+                                        return null;  
+                                    }  
+                                })  
+                            );  
+                            
+                            const validChoices = choices.filter(c => c !== null);  
+                            await interaction.respond(validChoices);  
+                        } catch (error) {  
+                            logger.error('Error handling reactroles autocomplete:', {  
+                                error: error.message,  
+                                guildId: interaction.guildId,  
+                                commandName: interaction.commandName  
+                            });  
+                            await interaction.respond([]);  
+                        }  
+                    }  
+                } else if (interaction.isButton()) {  
+                    if (interaction.customId === 'open_purchase_ticket') {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                        
+                        const category = interaction.guild.channels.cache.find(c => c.name === 'MTS Shop Aankopen' && c.type === ChannelType.GuildCategory);
+                        if (!category) {
+                            return interaction.editReply({ content: '❌ De categorie `MTS Shop Aankopen` bestaat niet. Maak deze eerst aan!' });
+                        }
+
+                        const ticketChannel = await interaction.guild.channels.create({
+                            name: `🛒-aankoop-${interaction.user.username}`,
+                            type: ChannelType.GuildText,
+                            parent: category.id,
+                            permissionOverwrites: [
+                                { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }
+                            ],
+                        });
+
+                        const ticketEmbed = new EmbedBuilder()
+                            .setTitle('🛍️ JE MTS SHOP TICKET')
+                            .setDescription(`Welkom <@${interaction.user.id}>!\n\nLaat hier alvast weten welk product je wilt kopen uit de prijzenlijst. Een medewerker komt je zo snel mogelijk helpen.`)
+                            .setColor('#00fbff')
+                            .setTimestamp();
+
+                        const closeButton = new ButtonBuilder()
+                            .setCustomId('close_ticket')
+                            .setLabel('🔒 Sluit Ticket')
+                            .setStyle(ButtonStyle.Danger);
+
+                        const row = new ActionRowBuilder().addComponents(closeButton);
+                        await ticketChannel.send({ content: `<@${interaction.user.id}> Welkom bij je aankoop-verzoek!`, embeds: [ticketEmbed], components: [row] });
+                        return interaction.editReply({ content: `✅ Je ticket is aangemaakt! Klik hier om direct te kijken: <#${ticketChannel.id}>` });
+                    }
+
+                    if (interaction.customId === 'close_ticket') {
+                        await interaction.reply({ content: '🔒 Dit ticket wordt over 5 seconden gesloten...' });
+                        setTimeout(async () => {
+                            await interaction.channel.delete().catch(() => {});
+                        }, 5000);
+                        return;
+                    }
+
+                    if (interaction.customId.startsWith('shared_todo_')) {  
+                        const parts = interaction.customId.split('_');  
+                        const buttonType = parts.slice(0, 3).join('_');  
+                        const listId = parts[3];  
+                        const button = client.buttons.get(buttonType);  
+
+                        if (button) {  
+                            try {  
+                                await button.execute(interaction, client, [listId]);  
+                            } catch (error) {  
+                                await handleInteractionError(interaction, error, withTraceContext({  
+                                    type: 'button',  
+                                    customId: interaction.customId,  
+                                    handler: 'todo'  
+                                }, interactionTraceContext));  
+                            }  
+                        } else {  
+                            throw createError(  
+                                `No button handler found for ${buttonType}`,  
+                                ErrorTypes.CONFIGURATION,  
+                                'This button is not available.',  
+                                withTraceContext({ buttonType }, interactionTraceContext)  
+                            );  
+                        }  
+                        return;  
+                    }  
+
+                    const [customId, ...args] = interaction.customId.split(':');  
+                    const button = client.buttons.get(customId);  
+
+                    if (!button) {  
+                        if (!interaction.customId.includes(':')) {  
+                            return;  
+                        }  
+
+                        throw createError(  
+                            `No button handler found for ${customId}`,  
+                            ErrorTypes.CONFIGURATION,  
+                            'This button is not available.',  
+                            withTraceContext({ customId }, interactionTraceContext)  
+                        );  
+                    }  
+
+                    try {  
+                        await button.execute(interaction, client, args);  
+                    } catch (error) {  
+                        await handleInteractionError(interaction, error, withTraceContext({  
+                            type: 'button',  
+                            customId: interaction.customId,  
+                            handler: 'general'  
+                        }, interactionTraceContext));  
+                    }  
+                } else if (interaction.isStringSelectMenu()) {  
+                    const [customId, ...args] = interaction.customId.split(':');  
+                    const selectMenu = client.selectMenus.get(customId);  
+
+                    if (!selectMenu) {  
+                        if (!interaction.customId.includes(':')) {  
+                            return;  
+                        }  
+
+                        throw createError(  
+                            `No select menu handler found for ${customId}`,  
+                            ErrorTypes.CONFIGURATION,  
+                            'This select menu is not available.',  
+                            withTraceContext({ customId }, interactionTraceContext)  
+                        );  
+                    }  
+
+                    try {  
+                        await selectMenu.execute(interaction, client, args);  
+                    } catch (error) {  
+                        await handleInteractionError(interaction, error, withTraceContext({  
+                            type: 'select_menu',  
+                            customId: interaction.customId  
+                        }, interactionTraceContext));  
+                    }  
+                } else if (interaction.isModalSubmit()) {  
+                    if (interaction.customId === 'review_modal') {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                        const product = interaction.fields.getTextInputValue('review_product');
+                        const price = interaction.fields.getTextInputValue('review_price');
+                        const legit = interaction.fields.getTextInputValue('review_legit');
+                        const stars = interaction.fields.getTextInputValue('review_stars');
+
+                        const reviewChannel = interaction.guild.channels.cache.find(c => c.name === 'review' || c.name === 'reviews');
+                        if (!reviewChannel) {
+                            return interaction.editReply({ content: '❌ Kon het `#review` kanaal niet vinden in deze server.' });
+                        }
+
+                        const reviewEmbed = new EmbedBuilder()
+                            .setTitle('⭐ NIEUWE MTS SHOP REVIEW')
+                            .setColor('#00fbff')
+                            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                            .addFields(
+                                { name: '👤 Koper', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                                { name: '📦 Product', value: `\`${product}\``, inline: true },
+                                { name: '💰 Prijs', value: `\`${price}\``, inline: true },
+                                { name: '✅ Legit Check', value: `${legit}`, inline: false },
+                                { name: 'Beoordeling', value: `${stars}`, inline: false }
+                            )
+                            .setTimestamp()
+                            .setFooter({ text: 'Bedankt voor je review!' });
+
+                        await reviewChannel.send({ embeds: [reviewEmbed] });
+                        return interaction.editReply({ content: `✅ Je review is succesvol geplaatst in <#${reviewChannel.id}>!` });
+                    }
+
+                    if (interaction.customId.startsWith('app_modal_')) {  
+                        try {  
+                            await handleApplicationModal(interaction);  
+                        } catch (error) {  
+                            await handleInteractionError(interaction, error, withTraceContext({  
+                                type: 'modal',  
+                                customId: interaction.customId,  
+                                handler: 'application'  
+                            }, interactionTraceContext));  
+                        }  
+                        return;  
+                    }  
+
+                    if (interaction.customId.startsWith('app_review_')) {  
+                        try {  
+                            await handleApplicationReviewModal(interaction);  
+                        } catch (error) {  
+                            await handleInteractionError(interaction, error, withTraceContext({  
+                                type: 'modal',  
+                                customId: interaction.customId,  
+                                handler: 'application_review'  
+                            }, interactionTraceContext));  
+                        }  
+                        return;  
+                    }  
+
+                    if (interaction.customId.startsWith('jtc_')) {  
+                        logger.debug(`Skipping modal handler lookup for inline-awaited modal: ${interaction.customId}`, {  
+                          event: 'interaction.modal.inline_skipped',  
+                          traceId: interactionTraceContext.traceId  
+                        });  
+                        return;  
+                    }  
+
+                    const [customId, ...args] = interaction.customId.split(':');  
+                    const modal = client.modals.get(customId);  
+
+                    if (!modal) {  
+                        if (!interaction.customId.includes(':')) {  
+                            return;  
+                        }  
+
+                        throw createError(  
+                            `No modal handler found for ${customId}`,  
+                            ErrorTypes.CONFIGURATION,  
+                            'This form is not available.',  
+                            withTraceContext({ customId }, interactionTraceContext)  
+                        );  
+                    }  
+
+                    try {  
+                        await modal.execute(interaction, client, args);  
+                    } catch (error) {  
+                        await handleInteractionError(interaction, error, withTraceContext({  
+                            type: 'modal',  
+                            customId: interaction.customId,  
+                            handler: 'general'  
+                        }, interactionTraceContext));  
+                    }  
+                }  
+            } catch (error) {  
+                logger.error('Unhandled error in interactionCreate:', {  
+                    event: 'interaction.unhandled_error',  
+                    errorCode: 'INTERACTION_UNHANDLED_ERROR',  
+                    error,  
+                    traceId: interactionTraceContext.traceId,  
+                    interactionId: interaction.id,  
+                    guildId: interaction.guildId,  
+                    userId: interaction.user?.id  
+                });  
+
+                try {  
+                    const ephemeralErrorMessage = {  
+                        embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')],  
+                        flags: MessageFlags.Ephemeral  
+                    };  
+                    const editErrorMessage = {  
+                        embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')]  
+                    };  
+
+                    if (interaction.deferred) {  
+                        await interaction.editReply(editErrorMessage);  
+                    } else if (interaction.replied) {  
+                        await interaction.followUp(ephemeralErrorMessage);  
+                    } else {  
+                        await interaction.reply(ephemeralErrorMessage);  
+                    }  
+                } catch (replyError) {  
+                    logger.error('Failed to send fallback error response:', {  
+                        event: 'interaction.error_response_failed',  
+                        errorCode: 'INTERACTION_ERROR_RESPONSE_FAILED',  
+                        error: replyError,  
+                        traceId: interactionTraceContext.traceId  
+                    });  
+                }  
+            }  
+        });
+    }
+};
