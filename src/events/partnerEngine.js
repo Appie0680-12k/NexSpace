@@ -61,7 +61,7 @@ export default {
         if (message.author.bot || !message.guild) return;
 
         // --- 1. AUTO-UPDATE BIJ NIEUWE LINK ---
-        if (message.channel.name === 'partners' && message.content.includes('http')) {
+        if (message.channel.name === '┃🤝🏻・partners' && message.content.includes('http')) {
             try {
                 await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
                 await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
