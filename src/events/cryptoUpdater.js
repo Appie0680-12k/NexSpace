@@ -47,7 +47,7 @@ export default {
                 // ==========================================
                 // SCHEMA 1: #crypto-updates (NORMALE VERSIE)
                 // ==========================================
-                const updatesChannel = client.channels.cache.find(c => c.name === 'crypto-updates');
+                const updatesChannel = client.channels.cache.find(c => c.name === '┃🪙・crypto-updates');
                 if (updatesChannel) {
                     const embedUpdates = new EmbedBuilder()
                         .setTitle('💎 NexSpace Premium Crypto Markets')
