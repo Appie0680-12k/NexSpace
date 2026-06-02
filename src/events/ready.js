@@ -95,7 +95,7 @@ export default {
 
                         client.guilds.cache.forEach(async guild => {
                             const nieuwsChannel = guild.channels.cache.find(
-                                c => c.name === 'wereldnieuws'
+                                c => c.name === '┃🌍・wereldnieuws'
                             );
                             if (!nieuwsChannel) return;
 
