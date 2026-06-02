@@ -150,8 +150,8 @@ export default {
                             client.guilds.cache.forEach(async guild => {
                                 const financeChannel = guild.channels.cache.find(
                                     c =>
-                                        c.name === 'financiële-nieuws' ||
-                                        c.name === 'financiele-nieuws'
+                                        c.name === '┃💰・financiële-nieuws' ||
+                                        c.name === '┃💰・financiële-nieuws'
                                 );
                                 if (!financeChannel) return;
 
