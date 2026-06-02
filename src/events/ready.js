@@ -18,7 +18,7 @@ let liveMessage = null;
 // Ingebouwde XML parser
 async function fetchRssFeed(url) {
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         if (!response.ok) return null;
 
         const text = await response.text();
@@ -114,7 +114,7 @@ export default {
                             await nieuwsChannel.send({
                                 content: `🔗 ${item.link}`,
                                 embeds: [embed]
-                            });
+                            }).catch(() => null);
                         });
                     }
                 }
@@ -170,7 +170,7 @@ export default {
                                 await financeChannel.send({
                                     content: `🔗 ${item.link}`,
                                     embeds: [embed]
-                                });
+                                }).catch(() => null);
                             });
                         }
                     }
@@ -188,8 +188,8 @@ export default {
                 let marketDescription = '**🪙 CRYPTO MARKETS**\n';
 
                 try {
-                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
-                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT');
+                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } });
 
                     if (btcRes.ok && ethRes.ok) {
                         const btcData = await btcRes.json();
@@ -220,8 +220,9 @@ export default {
                 marketDescription += '• Tesla: $175.50\n';
 
                 client.guilds.cache.forEach(async guild => {
+                    // Zoekt nu naar ALLE mogelijke kanaalnamen zodat hij nooit crasht
                     const marketChannel = guild.channels.cache.find(
-                        c => c.name === 'live-koersen' || c.name === 'live-markets'
+                        c => c.name === 'live-koersen' || c.name === 'live-markets' || c.name === 'aandelen-koer' || c.name === 'aandelen-koers'
                     );
                     if (!marketChannel) return;
 
@@ -233,13 +234,13 @@ export default {
 
                     if (!liveMessage) {
                         const messages = await marketChannel.messages.fetch({ limit: 5 }).catch(() => []);
-                        const existingBotMessage = messages.find(m => m.author.id === client.user.id);
+                        const existingBotMessage = messages && messages.size ? messages.find(m => m.author.id === client.user.id) : null;
 
                         if (existingBotMessage) {
                             liveMessage = existingBotMessage;
-                            await liveMessage.edit({ embeds: [embed] });
+                            await liveMessage.edit({ embeds: [embed] }).catch(() => null);
                         } else {
-                            liveMessage = await marketChannel.send({ embeds: [embed] });
+                            liveMessage = await marketChannel.send({ embeds: [embed] }).catch(() => null);
                         }
                     } else {
                         await liveMessage.edit({ embeds: [embed] }).catch(() => {
