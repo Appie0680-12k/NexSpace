@@ -22,6 +22,7 @@
     "express": "^5.1.0",
     "node-cron": "^4.2.1",
     "pg": "^8.11.3",
+    "rss-parser": "^3.13.0",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
     "zod": "^3.25.76"
@@ -31,4 +32,3 @@
     "node": ">=18.0.0"
   }
 }
-
