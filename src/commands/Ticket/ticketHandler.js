@@ -35,9 +35,9 @@ export default {
                 const bericht =
                     interaction.fields.getTextInputValue('bericht');
 
-                // REVIEW CHANNEL ID
+                // REVIEW CHANNEL
                 const reviewChannel =
-                    interaction.guild.channels.cache.get('REVIEW_CHANNEL_ID');
+                    interaction.guild.channels.cache.get('1500951814424760462');
 
                 const embed = new EmbedBuilder()
                     .setTitle('⭐ Nieuwe MTS Shop Review')
@@ -92,15 +92,19 @@ export default {
         }
 
         // =========================
-        // OPEN TICKET
+        // BUTTONS
         // =========================
 
         if (interaction.isButton()) {
 
+            // =========================
+            // OPEN TICKET
+            // =========================
+
             if (interaction.customId === 'open_ticket') {
 
                 // CATEGORIE ID
-                const categoryId = 'CATEGORIE_ID';
+                const categoryId = '1510951986961580102';
 
                 // CHECK DUBBEL TICKET
                 const existingChannel =
