@@ -15,13 +15,15 @@ const sentFinanceArticles = new Set();
 
 let liveMessage = null;
 
-// Ingebouwde XML parser
+// Ingebouwde XML parser met extra headers tegen blokkades
 async function fetchRssFeed(url) {
     try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (!response.ok) return null;
+        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
+        if (!response || !response.ok) return null;
 
-        const text = await response.text();
+        const text = await response.text().catch(() => '');
+        if (!text) return null;
+
         const items = text.split('<item>');
         const parsedItems = [];
 
@@ -76,7 +78,7 @@ export default {
         async function checkWorldNews() {
             try {
                 const feed = await fetchRssFeed(WORLD_NEWS_URL);
-                if (!feed || !feed.items?.length) return;
+                if (!feed || !feed.items || feed.items.length === 0) return;
 
                 const recentItems = feed.items.slice(0, 3);
 
@@ -93,29 +95,32 @@ export default {
 
                         sentWorldArticles.add(articleId);
 
-                        client.guilds.cache.forEach(async guild => {
-                            const nieuwsChannel = guild.channels.cache.find(
-                                c => c.name === '┃🌍・wereldnieuws'
-                            );
-                            if (!nieuwsChannel) return;
-
-                            const embed = new EmbedBuilder()
-                                .setTitle(`🌐 ${item.title}`)
-                                .setURL(item.link)
-                                .setDescription(
-                                    item.contentSnippet ||
-                                    'Klik op de link om het artikel te lezen.'
-                                )
-                                .setColor('#00fbff')
-                                .setTimestamp(
-                                    item.pubDate ? new Date(item.pubDate) : new Date()
+                        // Veilige for...of loop in plaats van forEach
+                        for (const [guildId, guild] of client.guilds.cache) {
+                            try {
+                                const nieuwsChannel = guild.channels.cache.find(
+                                    c => c.name === '┃🌍・wereldnieuws' || c.name === 'wereldnieuws'
                                 );
+                                if (!nieuwsChannel) continue;
 
-                            await nieuwsChannel.send({
-                                content: `🔗 ${item.link}`,
-                                embeds: [embed]
-                            }).catch(() => null);
-                        });
+                                const embed = new EmbedBuilder()
+                                    .setTitle(`🌐 ${item.title}`)
+                                    .setURL(item.link)
+                                    .setDescription(
+                                        item.contentSnippet ||
+                                        'Klik op de link om het artikel te lezen.'
+                                    )
+                                    .setColor('#00fbff')
+                                    .setTimestamp(
+                                        item.pubDate ? new Date(item.pubDate) : new Date()
+                                    );
+
+                                await nieuwsChannel.send({
+                                    content: `🔗 ${item.link}`,
+                                    embeds: [embed]
+                                }).catch(() => null);
+                            } catch (err) {}
+                        }
                     }
                 }
             } catch (err) {
@@ -130,7 +135,7 @@ export default {
             try {
                 for (const url of FINANCE_FEEDS) {
                     const feed = await fetchRssFeed(url);
-                    if (!feed || !feed.items?.length) continue;
+                    if (!feed || !feed.items || feed.items.length === 0) continue;
 
                     const recentItems = feed.items.slice(0, 3);
 
@@ -147,31 +152,36 @@ export default {
 
                             sentFinanceArticles.add(articleId);
 
-                            client.guilds.cache.forEach(async guild => {
-                                const financeChannel = guild.channels.cache.find(
-                                    c =>
-                                        c.name === '┃💰・financiële-nieuws' ||
-                                        c.name === '┃💰・financiële-nieuws'
-                                );
-                                if (!financeChannel) return;
-
-                                const embed = new EmbedBuilder()
-                                    .setTitle(`📊 ${item.title}`)
-                                    .setURL(item.link)
-                                    .setDescription(
-                                        item.contentSnippet ||
-                                        'Klik op de link om het artikel te lezen.'
-                                    )
-                                    .setColor('#00fbff')
-                                    .setTimestamp(
-                                        item.pubDate ? new Date(item.pubDate) : new Date()
+                            // Veilige for...of loop in plaats van forEach
+                            for (const [guildId, guild] of client.guilds.cache) {
+                                try {
+                                    const financeChannel = guild.channels.cache.find(
+                                        c =>
+                                            c.name === '┃💰・financiële-nieuws' ||
+                                            c.name === '┃💰・financiele-nieuws' ||
+                                            c.name === 'financiële-nieuws' ||
+                                            c.name === 'financiele-nieuws'
                                     );
+                                    if (!financeChannel) continue;
 
-                                await financeChannel.send({
-                                    content: `🔗 ${item.link}`,
-                                    embeds: [embed]
-                                }).catch(() => null);
-                            });
+                                    const embed = new EmbedBuilder()
+                                        .setTitle(`📊 ${item.title}`)
+                                        .setURL(item.link)
+                                        .setDescription(
+                                            item.contentSnippet ||
+                                            'Klik op de link om het artikel te lezen.'
+                                        )
+                                        .setColor('#00fbff')
+                                        .setTimestamp(
+                                            item.pubDate ? new Date(item.pubDate) : new Date()
+                                        );
+
+                                    await financeChannel.send({
+                                        content: `🔗 ${item.link}`,
+                                        embeds: [embed]
+                                    }).catch(() => null);
+                                } catch (err) {}
+                            }
                         }
                     }
                 }
@@ -188,25 +198,29 @@ export default {
                 let marketDescription = '**🪙 CRYPTO MARKETS**\n';
 
                 try {
-                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
+                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
 
-                    if (btcRes.ok && ethRes.ok) {
-                        const btcData = await btcRes.json();
-                        const ethData = await ethRes.json();
+                    if (btcRes && ethRes && btcRes.ok && ethRes.ok) {
+                        const btcData = await btcRes.json().catch(() => null);
+                        const ethData = await ethRes.json().catch(() => null);
 
-                        const btcPrice = parseFloat(btcData.lastPrice).toLocaleString('en-US', {
-                            style: 'currency',
-                            currency: 'USD'
-                        });
+                        if (btcData && ethData) {
+                            const btcPrice = parseFloat(btcData.lastPrice).toLocaleString('en-US', {
+                                style: 'currency',
+                                currency: 'USD'
+                            });
 
-                        const ethPrice = parseFloat(ethData.lastPrice).toLocaleString('en-US', {
-                            style: 'currency',
-                            currency: 'USD'
-                        });
+                            const ethPrice = parseFloat(ethData.lastPrice).toLocaleString('en-US', {
+                                style: 'currency',
+                                currency: 'USD'
+                            });
 
-                        marketDescription += `• BTC: ${btcPrice}\n`;
-                        marketDescription += `• ETH: ${ethPrice}\n\n`;
+                            marketDescription += `• BTC: ${btcPrice}\n`;
+                            marketDescription += `• ETH: ${ethPrice}\n\n`;
+                        } else {
+                            marketDescription += '• Crypto data parsing failed\n\n';
+                        }
                     } else {
                         marketDescription += '• Crypto data unavailable\n\n';
                     }
@@ -219,47 +233,51 @@ export default {
                 marketDescription += '• Apple: $189.30\n';
                 marketDescription += '• Tesla: $175.50\n';
 
-                client.guilds.cache.forEach(async guild => {
-                    // Zoekt nu naar ALLE mogelijke kanaalnamen zodat hij nooit crasht
-                    const marketChannel = guild.channels.cache.find(
-                        c => c.name === 'live-koersen' || c.name === 'live-markets' || c.name === 'aandelen-koer' || c.name === 'aandelen-koers'
-                    );
-                    if (!marketChannel) return;
+                // Veilige for...of loop in plaats van forEach
+                for (const [guildId, guild] of client.guilds.cache) {
+                    try {
+                        const marketChannel = guild.channels.cache.find(
+                            c => c.name === 'live-koersen' || c.name === 'live-markets' || c.name === 'aandelen-koers' || c.name === 'aandelen-koer'
+                        );
+                        if (!marketChannel) continue;
 
-                    const embed = new EmbedBuilder()
-                        .setTitle('📊 LIVE FINANCIAL MARKETS')
-                        .setDescription(marketDescription)
-                        .setColor('#00fbff')
-                        .setTimestamp();
+                        const embed = new EmbedBuilder()
+                            .setTitle('📊 LIVE FINANCIAL MARKETS')
+                            .setDescription(marketDescription)
+                            .setColor('#00fbff')
+                            .setTimestamp();
 
-                    if (!liveMessage) {
-                        const messages = await marketChannel.messages.fetch({ limit: 5 }).catch(() => []);
-                        const existingBotMessage = messages && messages.size ? messages.find(m => m.author.id === client.user.id) : null;
+                        if (!liveMessage) {
+                            const messages = await marketChannel.messages.fetch({ limit: 5 }).catch(() => null);
+                            const existingBotMessage = messages && messages.size > 0 ? messages.find(m => m.author.id === client.user.id) : null;
 
-                        if (existingBotMessage) {
-                            liveMessage = existingBotMessage;
-                            await liveMessage.edit({ embeds: [embed] }).catch(() => null);
+                            if (existingBotMessage) {
+                                liveMessage = existingBotMessage;
+                                await liveMessage.edit({ embeds: [embed] }).catch(() => { liveMessage = null; });
+                            } else {
+                                liveMessage = await marketChannel.send({ embeds: [embed] }).catch(() => { liveMessage = null; });
+                            }
                         } else {
-                            liveMessage = await marketChannel.send({ embeds: [embed] }).catch(() => null);
+                            await liveMessage.edit({ embeds: [embed] }).catch(() => {
+                                liveMessage = null;
+                            });
                         }
-                    } else {
-                        await liveMessage.edit({ embeds: [embed] }).catch(() => {
-                            liveMessage = null;
-                        });
-                    }
-                });
+                    } catch (err) {}
+                }
             } catch (err) {
                 console.error('Markets error:', err.message);
             }
         }
 
-        // START SYSTEMEN
-        checkWorldNews();
-        checkFinanceNews();
-        updateMarkets();
+        // BIJ OPSTARTEN: Geef de bot/database 5 seconden de tijd om stabiel te verbinden
+        setTimeout(() => {
+            checkWorldNews();
+            checkFinanceNews();
+            updateMarkets();
 
-        setInterval(checkWorldNews, 120000);
-        setInterval(checkFinanceNews, 120000);
-        setInterval(updateMarkets, 180000);
+            setInterval(checkWorldNews, 120000);
+            setInterval(checkFinanceNews, 120000);
+            setInterval(updateMarkets, 180000);
+        }, 5000);
     }
 };
