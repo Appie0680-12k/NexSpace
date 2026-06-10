@@ -10,7 +10,7 @@ export default {
     name: Events.MessageCreate,
     async execute(message) {
         // 1. Alleen in #woordslang en negeer bots
-        if (message.author.bot || !message.guild || message.channel.name !== 'woordslang') return;
+        if (message.author.bot || !message.guild || message.channel.name !== '┃🐍・woordslang') return;
 
         // --- ADMIN COMMANDO: RESET ---
         if (message.content === '/reset-woordslang') {
