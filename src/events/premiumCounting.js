@@ -13,7 +13,7 @@ export default {
     name: Events.MessageCreate,
     async execute(message) {
         // 1. Alleen in het kanaal #tellen en negeer bots
-        if (message.author.bot || !message.guild || message.channel.name !== 'tellen') return;
+        if (message.author.bot || !message.guild || message.channel.name !== '┃🔢・tellen') return;
 
         // 2. Check of het bericht een getal is
         const input = parseInt(message.content);
