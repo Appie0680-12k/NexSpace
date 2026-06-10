@@ -21,7 +21,7 @@ export default {
 
         const startEmbed = new EmbedBuilder()
             .setTitle('🎲 Nieuw Spel Gestart!')
-            .setDescription(`Er is een nieuw getal ingesteld in <#${interaction.guild.channels.cache.find(c => c.name === 'raad-het-getal')?.id}>!\n\nBegin maar met raden!`)
+            .setDescription(`Er is een nieuw getal ingesteld in <#${interaction.guild.channels.cache.find(c => c.name === '┃🎁・raad-het-getal')?.id}>!\n\nBegin maar met raden!`)
             .setColor('#5865F2');
 
         await interaction.reply({ embeds: [startEmbed] });
