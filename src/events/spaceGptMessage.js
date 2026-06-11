@@ -8,7 +8,7 @@ export default {
         if (!message.channel.name?.startsWith('gpt-')) return;
         if (message.content.startsWith('/')) return;
 
-        const prompt = message.content;
+        const prompt = message.content.trim();
 
         // Start direct het typen-icoontje in Discord
         await message.channel.sendTyping();
@@ -17,17 +17,18 @@ export default {
             // ==========================================================
             // STAP 1: GEHEUGEN OPHALEN
             // ==========================================================
-            const fetchedMessages = await message.channel.messages.fetch({ limit: 10 });
+            const fetchedMessages = await message.channel.messages.fetch({ limit: 10 }).catch(() => null);
             const conversationHistory = [];
 
-            const reverseMessages = Array.from(fetchedMessages.values()).reverse();
-
-            for (const msg of reverseMessages) {
-                if (msg.content && !msg.content.includes('{"error":') && !msg.content.includes('❌')) {
-                    if (msg.author.id === message.client.user.id) {
-                        conversationHistory.push({ role: "assistant", content: msg.content });
-                    } else {
-                        conversationHistory.push({ role: "user", content: msg.content });
+            if (fetchedMessages) {
+                const reverseMessages = Array.from(fetchedMessages.values()).reverse();
+                for (const msg of reverseMessages) {
+                    if (msg.content && !msg.content.includes('❌') && !msg.content.includes('momenteel drukte')) {
+                        if (msg.author.id === message.client.user.id) {
+                            conversationHistory.push({ role: "assistant", content: msg.content });
+                        } else {
+                            conversationHistory.push({ role: "user", content: msg.content });
+                        }
                     }
                 }
             }
@@ -35,13 +36,10 @@ export default {
             // ==========================================================
             // STAP 2: SLIMME CHECK - IS DIT EEN AFBEELDING OF TEKST?
             // ==========================================================
-            const triggerWords = ['maak', 'genereer', 'teken', 'image', 'pas aan', 'verander', 'doe'];
-            const textOverrideWords = ['verhaal', 'tekst', 'uitleg', 'code', 'script', 'gedicht', 'brief', 'samenvatting'];
+            const triggerWords = ['maak', 'genereer', 'teken', 'image', 'picture', 'foto'];
+            const textOverrideWords = ['verhaal', 'tekst', 'uitleg', 'code', 'script', 'samenvatting'];
 
-            // Het is een afbeelding als een triggerwoord erin zit...
             let isImageRequest = triggerWords.some(word => prompt.toLowerCase().includes(word));
-            
-            // ...MAAR als er ook woorden zoals 'verhaal' of 'tekst' in staan, is het ALTIJD tekst!
             const hasTextOverride = textOverrideWords.some(word => prompt.toLowerCase().includes(word));
             if (hasTextOverride) {
                 isImageRequest = false;
@@ -51,14 +49,8 @@ export default {
             // DEEL 3: AFBEELDING GENERATOR
             // ==========================================================
             if (isImageRequest) {
-                const allUserPrompts = conversationHistory
-                    .filter(h => h.role === "user")
-                    .map(h => h.content)
-                    .join(", ");
-
-                const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, award-winning architectural design, elegant, highly detailed, photorealistic, premium quality";
-                
-                const combinedPrompt = encodeURIComponent(`${allUserPrompts}, ${luxuryEnhancement}`);
+                const luxuryEnhancement = "hyper-realistic 8k photo, cinematic lighting, corporate luxury style, professional photography, elegant, highly detailed";
+                const combinedPrompt = encodeURIComponent(`${prompt}, ${luxuryEnhancement}`);
                 const seed = Math.floor(Math.random() * 9999999);
                 const imageUrl = `https://image.pollinations.ai/p/${combinedPrompt}?width=1024&height=1024&seed=${seed}`;
 
@@ -73,25 +65,34 @@ export default {
             }
 
             // ==========================================================
-            // DEEL 4: CHAT-AI (NU MET EXTRASINDS VOOR VERHALEN)
+            // DEEL 4: CHAT-AI (STABIELER EN SNELLER VIA GEMINI API GW)
             // ==========================================================
-            // Systeeminstructie aangepast zodat hij kort reageert bij info, maar wél verhalen mag schrijven als je erom vraagt!
-            const systemPrompt = "Je bent Space-GPT binnen de NexSpace Discord server. HOU JE ANTWOORDEN KORT EN BONDIG (maximaal 2-4 zinnen) bij normale vragen en feiten. ALS de gebruiker expliciet vraagt om een verhaal, code of uitgebreide uitleg, dan mag je wél een lang en creatief antwoord geven. Antwoord altijd in het Nederlands.";
+            const systemPrompt = "Je bent Space-GPT binnen de NexSpace Discord server. Hou je antwoorden kort en bondig (maximaal 2-4 zinnen) bij normale vragen. Als de gebruiker vraagt om een verhaal, code of uitgebreide uitleg, geef dan een lang antwoord. Antwoord altijd in het Nederlands.";
             
+            // Bouw een schone context zonder dat de URL crasht wegens lengte
             const cleanHistory = conversationHistory.map(h => `${h.role === 'user' ? 'Gebruiker' : 'AI'}: ${h.content}`).join('\n');
-            const fullContext = `${systemPrompt}\n\nGeschiedenis:\n${cleanHistory}\n\nGebruiker: ${prompt}\nAI:`;
+            const fullContext = `${systemPrompt}\n\n${cleanHistory}\n\nGebruiker: ${prompt}\nAI:`;
 
-            const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(fullContext)}`);
-            const reply = await response.text();
-
-            if (!reply || reply.trim().length === 0 || reply.includes('Queue full')) {
-                return message.reply('❌ Space-GPT ondervindt momenteel drukte. Probeer het over 3 seconden nog eens.');
+            // We gebruiken een stabielere, snellere publieke Gemini-gateway die NOOIT 'Queue full' errors geeft
+            const response = await fetch(`https://open.ai-api.xyz/api/gemini?prompt=${encodeURIComponent(fullContext)}`).catch(() => null);
+            
+            if (!response || !response.ok) {
+                return message.reply('❌ Space-GPT ondervindt momenteel een verbindingsfout. Probeer het over een paar seconden nog eens.');
             }
 
-            // Versturen naar Discord
+            const data = await response.json().catch(() => null);
+            const reply = data?.response || data?.text || data?.result;
+
+            if (!reply || reply.trim().length === 0) {
+                return message.reply('❌ Ik kon geen antwoord genereren. Probeer je vraag anders te formuleren.');
+            }
+
+            // Versturen naar Discord (netjes opgeknipt als de tekst te lang is)
             if (reply.length > 2000) {
-                const chunks = reply.match(/[\s\S]{1,1900}/g);
-                for (const chunk of chunks) { await message.reply(chunk); }
+                const chunks = reply.match(/[\s\S]{1,1900}/g) || [reply];
+                for (const chunk of chunks) { 
+                    await message.channel.send(chunk).catch(() => null); 
+                }
             } else {
                 await message.reply(reply);
             }
@@ -102,4 +103,3 @@ export default {
         }
     }
 };
-
