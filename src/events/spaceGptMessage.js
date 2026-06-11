@@ -1,27 +1,12 @@
 import { Events, EmbedBuilder } from 'discord.js';
 
-const cooldowns = new Map();
-
 export default {
     name: Events.MessageCreate,
 
     async execute(message) {
-
         if (message.author.bot) return;
         if (!message.guild) return;
         if (!message.channel.name?.startsWith('gpt-')) return;
-
-        const userId = message.author.id;
-
-        if (cooldowns.has(userId)) {
-            const expires = cooldowns.get(userId);
-
-            if (Date.now() < expires) {
-                return;
-            }
-        }
-
-        cooldowns.set(userId, Date.now() + 3000);
 
         const prompt = message.content.trim();
 
@@ -35,20 +20,18 @@ export default {
             // AFBEELDINGEN
             // =========================
 
-            const imageWords = [
-                'maak',
-                'genereer',
+            const imageKeywords = [
+                'maak een afbeelding',
+                'maak een foto',
+                'genereer afbeelding',
+                'genereer foto',
                 'teken',
-                'afbeelding',
-                'foto',
-                'image',
-                'picture'
+                'draw'
             ];
 
-            const isImageRequest =
-                imageWords.some(word =>
-                    prompt.toLowerCase().includes(word)
-                );
+            const isImageRequest = imageKeywords.some(keyword =>
+                prompt.toLowerCase().includes(keyword)
+            );
 
             if (isImageRequest) {
 
@@ -71,21 +54,30 @@ export default {
             // CHAT AI
             // =========================
 
-            const response = await fetch(
-                `https://text.pollinations.ai/${encodeURIComponent(prompt)}`
-            );
+            const aiUrl =
+                `https://text.pollinations.ai/${encodeURIComponent(
+                    `Je bent Space-GPT van NexSpace. Antwoord altijd in het Nederlands.\n\nGebruiker: ${prompt}`
+                )}`;
+
+            const response = await fetch(aiUrl);
 
             if (!response.ok) {
+                console.log(
+                    'AI Error:',
+                    response.status,
+                    response.statusText
+                );
+
                 return await message.reply(
-                    '❌ AI-service tijdelijk niet beschikbaar.'
+                    '❌ De AI-service reageert momenteel niet.'
                 );
             }
 
             const answer = await response.text();
 
-            if (!answer || answer.length < 2) {
+            if (!answer || answer.trim().length < 2) {
                 return await message.reply(
-                    '❌ Geen geldig antwoord ontvangen.'
+                    '❌ Ik ontving geen geldig antwoord van de AI.'
                 );
             }
 
@@ -105,10 +97,10 @@ export default {
 
         } catch (error) {
 
-            console.error('[SPACE GPT ERROR]', error);
+            console.error('SPACE GPT ERROR:', error);
 
             await message.reply(
-                '❌ Er ging iets mis bij het verwerken van je vraag.'
+                '❌ Er is een fout opgetreden tijdens het verwerken van je bericht.'
             );
         }
     }
