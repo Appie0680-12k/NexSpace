@@ -56,7 +56,7 @@ export default {
                     `https://image.pollinations.ai/p/${encodeURIComponent(prompt)}?width=1024&height=1024`;
 
                 const embed = new EmbedBuilder()
-                    .setTitle('🎨 NexSpace AI')
+                    .setTitle('🎨 Space-GPT Afbeelding')
                     .setDescription(`**Prompt:** ${prompt}`)
                     .setImage(imageUrl)
                     .setColor('#00fbff')
@@ -76,7 +76,6 @@ export default {
             );
 
             if (!response.ok) {
-
                 return await message.reply(
                     '❌ AI-service tijdelijk niet beschikbaar.'
                 );
@@ -85,7 +84,6 @@ export default {
             const answer = await response.text();
 
             if (!answer || answer.length < 2) {
-
                 return await message.reply(
                     '❌ Geen geldig antwoord ontvangen.'
                 );
@@ -97,7 +95,6 @@ export default {
                     answer.match(/[\s\S]{1,1900}/g) || [answer];
 
                 for (const chunk of chunks) {
-
                     await message.channel.send(chunk);
                 }
 
@@ -108,10 +105,7 @@ export default {
 
         } catch (error) {
 
-            console.error(
-                '[SPACE GPT ERROR]',
-                error
-            );
+            console.error('[SPACE GPT ERROR]', error);
 
             await message.reply(
                 '❌ Er ging iets mis bij het verwerken van je vraag.'
