@@ -19,9 +19,13 @@ export default {
         gameState.attempts = 0;
         gameState.active = true;
 
+        // Zoek het kanaal op basis van de exacte naam met emoji's
+        const raadKanaal = interaction.guild.channels.cache.find(c => c.name === '┃🎁・raad-het-getal');
+        const kanaalVermelding = raadKanaal ? `<#${raadKanaal.id}>` : '#raad-het-getal';
+
         const startEmbed = new EmbedBuilder()
             .setTitle('🎲 Nieuw Spel Gestart!')
-            .setDescription(`Er is een nieuw getal ingesteld in <#${interaction.guild.channels.cache.find(c => c.name === '┃🎁・raad-het-getal')?.id}>!\n\nBegin maar met raden!`)
+            .setDescription(`Er is een nieuw getal ingesteld in ${kanaalVermelding}!\n\nBegin maar met raden!`)
             .setColor('#5865F2');
 
         await interaction.reply({ embeds: [startEmbed] });
