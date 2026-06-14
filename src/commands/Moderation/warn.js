@@ -9,7 +9,8 @@ export default {
                 .setDescription('Het stafflid dat de waarschuwing krijgt')
                 .setRequired(true)),
 
-    async execute(interaction) {
+    // Toegevoegd: guildConfig en client argumenten zodat het matcht met jouw interactionCreate handler
+    async execute(interaction, guildConfig, client) {
         const targetUser = interaction.options.getUser('gebruiker');
 
         const modal = new ModalBuilder()
@@ -18,7 +19,7 @@ export default {
 
         const typeInput = new TextInputBuilder()
             .setCustomId('warn_type')
-            .setLabel('Type sanctie (Typ: 1e warn / 2e ontslag / direct ontslag)')
+            .setLabel('Type (1e warn / 2e ontslag / direct ontslag)')
             .setPlaceholder('Bijv: 1e warn')
             .setStyle(TextInputStyle.Short)
             .setRequired(true);
@@ -43,6 +44,7 @@ export default {
             new ActionRowBuilder().addComponents(noteInput)
         );
 
+        // Toon de pop-up aan de gebruiker
         await interaction.showModal(modal);
     }
 };
