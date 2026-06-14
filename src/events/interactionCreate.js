@@ -1,4 +1,3 @@
-
 import { Events, MessageFlags, EmbedBuilder, ChannelType, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
@@ -223,16 +222,23 @@ export default {
                         }  
                     }  
                 } else if (interaction.isButton()) {  
-                    if (interaction.customId === 'open_purchase_ticket') {
+                    // GEUPDATE TICKET LOGICA: Vangt nu alle bekende ticket customId's flexibel op
+                    if (interaction.customId === 'open_purchase_ticket' || interaction.customId === 'create_ticket' || interaction.customId === 'open_ticket') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         
-                        const category = interaction.guild.channels.cache.find(c => c.name === 'MTS Shop Aankopen' && c.type === ChannelType.GuildCategory);
+                        // Zoekt flexibel naar de juiste categorie (MTS Shop Aankopen, algemene Tickets of alles wat 'ticket' bevat)
+                        const category = interaction.guild.channels.cache.find(c => 
+                            (c.name === 'MTS Shop Aankopen' || c.name === 'Tickets' || c.name.toLowerCase().includes('ticket')) && 
+                            c.type === ChannelType.GuildCategory
+                        );
+
                         if (!category) {
-                            return interaction.editReply({ content: '❌ De categorie `MTS Shop Aankopen` bestaat niet. Maak deze eerst aan!' });
+                            return interaction.editReply({ content: '❌ Er is geen geschikte ticket-categorie gevonden in de server. Maak deze eerst aan!' });
                         }
 
+                        // Maak het ticket-kanaal aan onder de gevonden categorie
                         const ticketChannel = await interaction.guild.channels.create({
-                            name: `🛒-aankoop-${interaction.user.username}`,
+                            name: `🎫-ticket-${interaction.user.username}`,
                             type: ChannelType.GuildText,
                             parent: category.id,
                             permissionOverwrites: [
@@ -242,8 +248,8 @@ export default {
                         });
 
                         const ticketEmbed = new EmbedBuilder()
-                            .setTitle('🛍️ JE MTS SHOP TICKET')
-                            .setDescription(`Welkom <@${interaction.user.id}>!\n\nLaat hier alvast weten welk product je wilt kopen uit de prijzenlijst. Een medewerker komt je zo snel mogelijk helpen.`)
+                            .setTitle('🎫 SUPPORT TICKET')
+                            .setDescription(`Welkom <@${interaction.user.id}>!\n\nHet team is op de hoogte gebracht. Laat hier alvast je vraag of aankoopverzoek achter, dan helpen we je zo snel mogelijk verder!`)
                             .setColor('#00fbff')
                             .setTimestamp();
 
@@ -253,8 +259,8 @@ export default {
                             .setStyle(ButtonStyle.Danger);
 
                         const row = new ActionRowBuilder().addComponents(closeButton);
-                        await ticketChannel.send({ content: `<@${interaction.user.id}> Welkom bij je aankoop-verzoek!`, embeds: [ticketEmbed], components: [row] });
-                        return interaction.editReply({ content: `✅ Je ticket is aangemaakt! Klik hier om direct te kijken: <#${ticketChannel.id}>` });
+                        await ticketChannel.send({ content: `<@${interaction.user.id}> Welkom bij je support ticket!`, embeds: [ticketEmbed], components: [row] });
+                        return interaction.editReply({ content: `✅ Je ticket is succesvol aangemaakt! Klik hier om direct te kijken: <#${ticketChannel.id}>` });
                     }
 
                     if (interaction.customId === 'close_ticket') {
@@ -410,18 +416,16 @@ export default {
                         let shopName = '';
                         let embedColor = '#00fbff';
 
-                        // Sorteer op basis van de geselecteerde shop naar het juiste kanaal
                         if (userChoices.shop === 'mts') {
                             targetChannelName = '┃⭐・reviews';
                             shopName = 'MTS Shop';
-                            embedColor = '#ffaa00'; // Goud/Oranje voor MTS
+                            embedColor = '#ffaa00'; 
                         } else {
                             targetChannelName = '┃🌿・proofs';
                             shopName = 'NexSpace Shop';
-                            embedColor = '#00ff66'; // Groen voor NexSpace proofs
+                            embedColor = '#00ff66'; 
                         }
 
-                        // Flexibele kanaalzoeker (kijkt naar de exacte naam, of fallback op 'reviews'/'proofs')
                         const reviewChannel = interaction.guild.channels.cache.find(c => 
                             c.name === targetChannelName || 
                             c.name === 'reviews' || 
@@ -448,7 +452,7 @@ export default {
                             .setFooter({ text: `Bedankt voor je review bij ${shopName}!`, iconURL: interaction.guild.iconURL() });
 
                         await reviewChannel.send({ embeds: [reviewEmbed] });
-                        tempReviewCache.delete(interaction.user.id); // Cache legen
+                        tempReviewCache.delete(interaction.user.id); 
 
                         return interaction.editReply({ content: `✅ Je review is succesvol geplaatst in <#${reviewChannel.id}>!` });
                     }
