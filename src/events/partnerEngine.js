@@ -83,7 +83,7 @@ export default {
         // --- 3. SYNC COMMANDO ---
         if (message.content === '/partner-sync') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-            const partnerChannel = message.guild.channels.cache.find(c => c.name === 'partners');
+            const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
             const statusMsg = await message.reply('⚙️ Bezig met scannen...');
             
             const messages = await partnerChannel.messages.fetch({ limit: 100 });
