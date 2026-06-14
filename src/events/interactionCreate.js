@@ -12,8 +12,8 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 
 const tempReviewCache = new Map();
 
-// Waterdichte globale cache om lopende sollicitaties te onthouden buiten de interactie-scope om
-const activeApps = new Map();
+// Deze globale export zorgt ervoor dat we de sessies overal (ook in messageCreate) kunnen uitlezen!
+export const activeApps = new Map();
 
 const REGULIERE_VRAGEN = [
     "Wat is je Naam?",
@@ -244,15 +244,10 @@ export default {
                     }  
                 } else if (interaction.isButton()) {  
 
-                    // ==========================================
-                    //  WATERDICHT SOLLICITATIE DM SYSTEEM
-                    // ==========================================
                     if (interaction.customId === 'start_apply_regulier' || interaction.customId === 'start_apply_management') {
                         if (activeApps.has(interaction.user.id)) {
                             return interaction.reply({ content: '❌ Je hebt al een actieve sollicitatie openstaan in je DM!', flags: [MessageFlags.Ephemeral] });
                         }
-
-                        await interaction.reply({ content: '⏳ We sturen je nu een bericht in je DM om het sollicitatiegesprek te starten!', flags: [MessageFlags.Ephemeral] });
 
                         const isManagement = interaction.customId === 'start_apply_management';
                         const vacatureNaam = isManagement ? 'Management vacature' : 'Staff vacature';
@@ -261,14 +256,12 @@ export default {
                         try {
                             const dmChannel = await interaction.user.createDM();
                             
-                            // 1. Stuur de "Application Started" embed
                             const startEmbed = new EmbedBuilder()
                                 .setTitle('Application Started')
                                 .setDescription('Please answer the questions below by sending a message to the bot.')
                                 .setColor('#2ecc71');
                             await dmChannel.send({ embeds: [startEmbed] });
 
-                            // 2. Stuur direct Vraag 1
                             const eersteVraagEmbed = new EmbedBuilder()
                                 .setTitle(vacatureNaam)
                                 .setDescription(`**1/${vragenlijst.length}.** ${vragenlijst[0]}`)
@@ -276,102 +269,25 @@ export default {
                                 .setColor('#3498db');
                             await dmChannel.send({ embeds: [eersteVraagEmbed] });
 
-                            // 3. Maak een inline collector aan gekoppeld aan de client om garbage collection te voorkomen
-                            const collector = dmChannel.createMessageCollector({
-                                filter: m => m.author.id === interaction.user.id && !m.author.bot,
-                                time: 900000 // 15 minuten totale tijd
-                            });
-
-                            // Zet de complete state in onze stabiele Map cache
+                            // Sla de sessie op in de globale map cache
                             activeApps.set(interaction.user.id, {
                                 index: 0,
                                 vragen: vragenlijst,
                                 antwoorden: [],
                                 vacature: vacatureNaam,
-                                guild: interaction.guild,
-                                collector: collector
+                                guildId: interaction.guild.id,
+                                lastActive: Date.now()
                             });
 
-                            collector.on('collect', async (msg) => {
-                                const session = activeApps.get(interaction.user.id);
-                                if (!session) return collector.stop();
-
-                                // Sla het antwoord op
-                                session.antwoorden.push({
-                                    vraag: session.vragen[session.index],
-                                    antwoord: msg.content
-                                });
-
-                                session.index++;
-
-                                if (session.index < session.vragen.length) {
-                                    // Volgende vraag sturen
-                                    const volgendeVraagEmbed = new EmbedBuilder()
-                                        .setTitle(session.vacature)
-                                        .setDescription(`**${session.index + 1}/${session.vragen.length}.** ${session.vragen[session.index]}`)
-                                        .addFields({ name: '\u200B', value: '*To answer this question, please send a message to the bot with your response.*' })
-                                        .setColor('#3498db');
-                                    
-                                    await dmChannel.send({ embeds: [volgendeVraagEmbed] });
-                                    collector.resetTimer();
-                                } else {
-                                    // Alle vragen zijn beantwoord!
-                                    collector.stop('voltooid');
-                                }
-                            });
-
-                            collector.on('end', async (collected, reason) => {
-                                const session = activeApps.get(interaction.user.id);
-                                activeApps.delete(interaction.user.id); // Altijd opschonen
-
-                                if (reason === 'voltooid' && session) {
-                                    const eindEmbed = new EmbedBuilder()
-                                        .setTitle('✅ Sollicitatie Afgerond')
-                                        .setDescription('Bedankt! Je sollicitatie is succesvol ontvangen door ons management team. Je hoort zo snel mogelijk van ons!')
-                                        .setColor('#2ecc71');
-                                    await dmChannel.send({ embeds: [eindEmbed] });
-
-                                    // Stuur resultaten naar de server
-                                    const uitslagenChannel = session.guild.channels.cache.find(c => c.name === 'vacatures-uitslagen');
-                                    if (!uitslagenChannel) return logger.error('Kanaal vacatures-uitslagen niet gevonden.');
-
-                                    const reviewEmbed = new EmbedBuilder()
-                                        .setTitle(`📩 Nieuwe Sollicitatie: ${session.vacature}`)
-                                        .setColor('#00fbff')
-                                        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-                                        .setFooter({ text: `Gebruiker ID: ${interaction.user.id}` })
-                                        .setTimestamp();
-
-                                    session.antwoorden.forEach(a => {
-                                        reviewEmbed.addFields({ name: a.vraag, value: a.antwoord || 'Geen antwoord gegeven', inline: false });
-                                    });
-
-                                    reviewEmbed.addFields({ name: '👤 Ingediend door', value: `<@${interaction.user.id}> (${interaction.user.username})` });
-
-                                    const beoordeelRij = new ActionRowBuilder().addComponents(
-                                        new ButtonBuilder().setCustomId(`app_accept:${interaction.user.id}`).setLabel('Goedkeuren').setStyle(ButtonStyle.Success),
-                                        new ButtonBuilder().setCustomId(`app_deny:${interaction.user.id}`).setLabel('Afkeuren').setStyle(ButtonStyle.Danger)
-                                    );
-
-                                    await uitslagenChannel.send({ embeds: [reviewEmbed], components: [beoordeelRij] });
-                                } else {
-                                    const timeoutEmbed = new EmbedBuilder()
-                                        .setTitle('❌ Sollicitatie Verlopen')
-                                        .setDescription('Je hebt te lang gewacht met antwoorden. Start de sollicitatie opnieuw via de server.')
-                                        .setColor('#e74c3c');
-                                    await dmChannel.send({ embeds: [timeoutEmbed] }).catch(() => {});
-                                }
-                            });
+                            return interaction.reply({ content: '⏳ We sturen je nu een bericht in je DM om het sollicitatiegesprek te starten!', flags: [MessageFlags.Ephemeral] });
 
                         } catch (err) {
                             activeApps.delete(interaction.user.id);
                             logger.error(`Kan geen DM sturen naar gebruiker: ${err.message}`);
-                            return interaction.followUp({ content: '❌ Het openen van een DM-gesprek is mislukt. Controleer of je privéberichten openstaan!', flags: [MessageFlags.Ephemeral] });
+                            return interaction.reply({ content: '❌ Het openen van een DM-gesprek is mislukt. Controleer of je privéberichten openstaan!', flags: [MessageFlags.Ephemeral] });
                         }
-                        return;
                     }
 
-                    // Beoordeling: GOEDKEUREN
                     if (interaction.customId.startsWith('app_accept:')) {
                         await interaction.deferUpdate();
                         const targetUserId = interaction.customId.split(':')[1];
@@ -391,7 +307,6 @@ export default {
                         return;
                     }
 
-                    // Beoordeling: AFKEUREN
                     if (interaction.customId.startsWith('app_deny:')) {
                         await interaction.deferUpdate();
                         const targetUserId = interaction.customId.split(':')[1];
