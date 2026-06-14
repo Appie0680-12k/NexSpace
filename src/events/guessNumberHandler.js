@@ -7,16 +7,21 @@ export let gameState = {
     active: false
 };
 
-const GUESS_CHANNEL_NAME = 'raad-het-getal';
+// De exacte naam van jouw kanaal inclusief de emoji's
+const GUESS_CHANNEL_NAME = '┃🎁・raad-het-getal';
 
 export default {
     name: 'messageCreate',
     once: false,
     async execute(message) {
+        // Stop als het een bot is, of als er geen spel actief is
         if (message.author.bot || !gameState.active) return;
+        
+        // Exacte check op de kanaalnaam met emoji's
         if (message.channel.name !== GUESS_CHANNEL_NAME) return;
 
         const guess = parseInt(message.content.trim());
+        // Als het geen geldig getal is, negeer het bericht
         if (isNaN(guess)) return;
 
         gameState.attempts++;
@@ -31,7 +36,7 @@ export default {
             await message.reply({ embeds: [winEmbed] });
             await message.react('🏆');
 
-            // Stop het spel
+            // Stop het spel en zet alles terug op de beginwaarden
             gameState.active = false;
             gameState.targetNumber = null;
             gameState.attempts = 0;
