@@ -1,4 +1,5 @@
-import { Events, MessageFlags, EmbedBuilder, ChannelType, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+
+import { Events, MessageFlags, EmbedBuilder, ChannelType, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { handleApplicationModal } from '../commands/Community/apply.js';
@@ -9,6 +10,9 @@ import { InteractionHelper } from '../utils/interactionHelper.js';
 import { createInteractionTraceContext, runWithTraceContext } from '../utils/traceContext.js';
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
+
+// Tijdelijke cache om de shop- en sterrenselectie van gebruikers te onthouden
+const tempReviewCache = new Map();
 
 function withTraceContext(context = {}, traceContext = {}) {
     return {
@@ -314,6 +318,56 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isStringSelectMenu()) {  
+                    // Opvangen van het Review Keuzemenu (Shop en Sterren)
+                    if (interaction.customId === 'review_select_shop' || interaction.customId === 'review_select_stars') {
+                        let userChoices = tempReviewCache.get(interaction.user.id) || { shop: null, stars: null };
+
+                        if (interaction.customId === 'review_select_shop') userChoices.shop = interaction.values[0];
+                        if (interaction.customId === 'review_select_stars') userChoices.stars = interaction.values[0];
+
+                        tempReviewCache.set(interaction.user.id, userChoices);
+
+                        // Als beide opties zijn geselecteerd, openen we direct het formulier!
+                        if (userChoices.shop && userChoices.stars) {
+                            const modal = new ModalBuilder()
+                                .setCustomId('review_final_modal')
+                                .setTitle(`${userChoices.shop === 'mts' ? 'MTS' : 'NexSpace'} Shop Review`);
+
+                            const productInput = new TextInputBuilder()
+                                .setCustomId('review_product')
+                                .setLabel('Wat heb je gekocht?')
+                                .setStyle(TextInputStyle.Short)
+                                .setPlaceholder('Bijv. Starter Pack, Munten, Custom Rol...')
+                                .setRequired(true);
+
+                            const priceInput = new TextInputBuilder()
+                                .setCustomId('review_price')
+                                .setLabel('Wat was de prijs?')
+                                .setStyle(TextInputStyle.Short)
+                                .setPlaceholder('Bijv. €5,00 of 500 munten')
+                                .setRequired(true);
+
+                            const legitInput = new TextInputBuilder()
+                                .setCustomId('review_legit')
+                                .setLabel('Hoe is de shopervaring verlopen?')
+                                .setStyle(TextInputStyle.Paragraph)
+                                .setPlaceholder('Bijv. Ja, heel snel geholpen en betrouwbaar!')
+                                .setRequired(true);
+
+                            modal.addComponents(
+                                new ActionRowBuilder().addComponents(productInput),
+                                new ActionRowBuilder().addComponents(priceInput),
+                                new ActionRowBuilder().addComponents(legitInput)
+                            );
+
+                            await interaction.showModal(modal);
+                            await interaction.editReply({ content: '⏳ Openen van het formulier...', components: [] }).catch(() => null);
+                        } else {
+                            await interaction.deferUpdate();
+                        }
+                        return;
+                    }
+
                     const [customId, ...args] = interaction.customId.split(':');  
                     const selectMenu = client.selectMenus.get(customId);  
 
@@ -339,34 +393,63 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isModalSubmit()) {  
-                    if (interaction.customId === 'review_modal') {
+                    // Afhandeling van de ingezonden Review Form
+                    if (interaction.customId === 'review_final_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                        const userChoices = tempReviewCache.get(interaction.user.id);
+                        if (!userChoices) {
+                            return interaction.editReply({ content: '❌ Er ging iets mis met je selectie. Typ opnieuw `/review`.' });
+                        }
 
                         const product = interaction.fields.getTextInputValue('review_product');
                         const price = interaction.fields.getTextInputValue('review_price');
                         const legit = interaction.fields.getTextInputValue('review_legit');
-                        const stars = interaction.fields.getTextInputValue('review_stars');
 
-                        const reviewChannel = interaction.guild.channels.cache.find(c => c.name === 'review' || c.name === 'reviews');
+                        let targetChannelName = '';
+                        let shopName = '';
+                        let embedColor = '#00fbff';
+
+                        // Sorteer op basis van de geselecteerde shop naar het juiste kanaal
+                        if (userChoices.shop === 'mts') {
+                            targetChannelName = '┃⭐・reviews';
+                            shopName = 'MTS Shop';
+                            embedColor = '#ffaa00'; // Goud/Oranje voor MTS
+                        } else {
+                            targetChannelName = '┃🌿・proofs';
+                            shopName = 'NexSpace Shop';
+                            embedColor = '#00ff66'; // Groen voor NexSpace proofs
+                        }
+
+                        // Flexibele kanaalzoeker (kijkt naar de exacte naam, of fallback op 'reviews'/'proofs')
+                        const reviewChannel = interaction.guild.channels.cache.find(c => 
+                            c.name === targetChannelName || 
+                            c.name === 'reviews' || 
+                            c.name === 'proofs' ||
+                            c.name.includes(userChoices.shop === 'mts' ? 'review' : 'proof')
+                        );
+
                         if (!reviewChannel) {
-                            return interaction.editReply({ content: '❌ Kon het `#review` kanaal niet vinden in deze server.' });
+                            return interaction.editReply({ content: `❌ Kon het juiste review/proof kanaal voor **${shopName}** niet vinden.` });
                         }
 
                         const reviewEmbed = new EmbedBuilder()
-                            .setTitle('⭐ NIEUWE MTS SHOP REVIEW')
-                            .setColor('#00fbff')
+                            .setTitle(`⭐ NIEUWE ${shopName.toUpperCase()} REVIEW`)
+                            .setColor(embedColor)
                             .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
                             .addFields(
                                 { name: '👤 Koper', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
                                 { name: '📦 Product', value: `\`${product}\``, inline: true },
                                 { name: '💰 Prijs', value: `\`${price}\``, inline: true },
-                                { name: '✅ Legit Check', value: `${legit}`, inline: false },
-                                { name: 'Beoordeling', value: `${stars}`, inline: false }
+                                { name: '✅ Legit Check & Ervaring', value: `${legit}`, inline: false },
+                                { name: 'Beoordeling', value: `${userChoices.stars}`, inline: false }
                             )
                             .setTimestamp()
-                            .setFooter({ text: 'Bedankt voor je review!' });
+                            .setFooter({ text: `Bedankt voor je review bij ${shopName}!`, iconURL: interaction.guild.iconURL() });
 
                         await reviewChannel.send({ embeds: [reviewEmbed] });
+                        tempReviewCache.delete(interaction.user.id); // Cache legen
+
                         return interaction.editReply({ content: `✅ Je review is succesvol geplaatst in <#${reviewChannel.id}>!` });
                     }
 
