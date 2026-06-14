@@ -10,7 +10,6 @@ import { createInteractionTraceContext, runWithTraceContext } from '../utils/tra
 import { validateChatInputPayloadOrThrow } from '../utils/commandInputValidation.js';
 import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abuseProtection.js';
 
-// Tijdelijke cache om de shop- en sterrenselectie van gebruikers te onthouden
 const tempReviewCache = new Map();
 
 // Vragenlijsten voor de DM-sollicitaties
@@ -244,35 +243,64 @@ export default {
                 } else if (interaction.isButton()) {  
 
                     // ==========================================
-                    //  SOLLICITATIE DM-GESPREK SYSTEM
+                    //  SOLLICITATIE DM SYSTEM (GEÏNSPIREERD DOOR APPY)
                     // ==========================================
                     if (interaction.customId === 'start_apply_regulier' || interaction.customId === 'start_apply_management') {
                         await interaction.reply({ content: '⏳ We sturen je nu een bericht in je DM om het sollicitatiegesprek te starten!', flags: [MessageFlags.Ephemeral] });
 
                         const isManagement = interaction.customId === 'start_apply_management';
+                        const vacatureNaam = isManagement ? 'Management vacature' : 'Staff vacature';
                         const vragenlijst = isManagement ? MANAGEMENT_VRAGEN : REGULIERE_VRAGEN;
                         const antwoorden = [];
 
                         try {
                             const dmChannel = await interaction.user.createDM();
-                            await dmChannel.send(`👋 Hallo! Leuk dat je wilt solliciteren bij ons als **${isManagement ? 'Manager' : 'Stafflid'}**.\nWe gaan nu beginnen met de vragen. Typ je antwoord rustig in deze chat.`);
+                            
+                            // Start Embed (Foto 2 - "Application Started")
+                            const startEmbed = new EmbedBuilder()
+                                .setTitle('Application Started')
+                                .setDescription('Please answer the questions below by sending a message to the bot.')
+                                .setColor('#2ecc71'); // Groene balk net als Appy
+                            
+                            await dmChannel.send({ embeds: [startEmbed] });
 
+                            // Loop door alle vragen heen
                             for (let i = 0; i < vragenlijst.length; i++) {
-                                await dmChannel.send(`**Vraag ${i + 1}/${vragenlijst.length}:** ${vragenlijst[i]}`);
-                                
-                                const filter = m => m.author.id === interaction.user.id;
-                                const collected = await dmChannel.awaitMessages({ filter, max: 1, time: 300000, errors: ['time'] }).catch(() => null);
+                                const vraagEmbed = new EmbedBuilder()
+                                    .setTitle(vacatureNaam)
+                                    .setDescription(`**${i + 1}/${vragenlijst.length}.** ${vragenlijst[i]}`)
+                                    .addFields({ name: '\u200B', value: '*To answer this question, please send a message to the bot with your response.*' })
+                                    .setColor('#3498db'); // Blauwe vraagbalk net als Appy
 
-                                if (!collected) {
-                                    await dmChannel.send('❌ Je hebt te lang gewacht met antwoorden (maximaal 5 minuten per vraag). De sollicitatie is geannuleerd. Probeer het gerust opnieuw via de server.');
+                                await dmChannel.send({ embeds: [vraagEmbed] });
+                                
+                                // Gecorrigeerde berichtenfilter: luister alléén naar de sollicitant in dít specifieke DM-kanaal
+                                const filter = m => m.author.id === interaction.user.id && m.channel.id === dmChannel.id;
+                                
+                                // De bot wacht hier geduldig tot er een bericht getypt wordt (max 10 minuten)
+                                const collected = await dmChannel.awaitMessages({ filter, max: 1, time: 600000, errors: ['time'] }).catch(() => null);
+
+                                if (!collected || collected.size === 0) {
+                                    const timeoutEmbed = new EmbedBuilder()
+                                        .setTitle('❌ Sollicitatie Geannuleerd')
+                                        .setDescription('Je hebt te lang gewacht met antwoorden (maximaal 10 minuten per vraag). Probeer het gerust opnieuw via de server.')
+                                        .setColor('#e74c3c');
+                                    await dmChannel.send({ embeds: [timeoutEmbed] });
                                     return;
                                 }
 
-                                antwoorden.push({ vraag: vragenlijst[i], antwoord: collected.first().content });
+                                const userMessage = collected.first();
+                                antwoorden.push({ vraag: vragenlijst[i], antwoord: userMessage.content });
                             }
 
-                            await dmChannel.send('✅ Bedankt! Je sollicitatie is succesvol afgerond en verzonden naar het management team. Je hoort zo snel mogelijk van ons!');
+                            // Afronding Embed
+                            const eindEmbed = new EmbedBuilder()
+                                .setTitle('✅ Sollicitatie Afgerond')
+                                .setDescription('Bedankt! Je sollicitatie is succesvol ontvangen door ons management team. Je hoort zo snel mogelijk van ons!')
+                                .setColor('#2ecc71');
+                            await dmChannel.send({ embeds: [eindEmbed] });
 
+                            // Stuur naar het beoordelingskanaal
                             const uitslagenChannel = interaction.guild.channels.cache.find(c => c.name === 'vacatures-uitslagen');
                             if (!uitslagenChannel) {
                                 logger.error('Kanaal vacatures-uitslagen niet gevonden tijdens verzenden sollicitatie.');
@@ -280,7 +308,7 @@ export default {
                             }
 
                             const reviewEmbed = new EmbedBuilder()
-                                .setTitle(`📩 Nieuwe Sollicitatie: ${isManagement ? 'Management Functie' : 'Reguliere Staff'}`)
+                                .setTitle(`📩 Nieuwe Sollicitatie: ${vacatureNaam}`)
                                 .setColor('#00fbff')
                                 .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
                                 .setFooter({ text: `Gebruiker ID: ${interaction.user.id}` })
@@ -307,7 +335,7 @@ export default {
 
                         } catch (err) {
                             logger.error(`Kon DM van gebruiker niet openen voor sollicitatie: ${err.message}`);
-                            return interaction.followUp({ content: '❌ Het is niet gelukt om je een DM te sturen. Zorg ervoor dat je privéberichten (DMs) openstaan voor leden van deze server!', flags: [MessageFlags.Ephemeral] });
+                            return interaction.followUp({ content: '❌ Het is niet gelukt om je een DM te sturen. Zorg ervoor dat je privéberichten (DMs) openstaan!', flags: [MessageFlags.Ephemeral] });
                         }
                         return;
                     }
@@ -352,7 +380,7 @@ export default {
                         return;
                     }
 
-                    // Ticket logica met gecorrigeerde categorie-prioriteit
+                    // Ticket logica
                     if (interaction.customId === 'open_purchase_ticket' || interaction.customId === 'create_ticket' || interaction.customId === 'open_ticket') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         
@@ -526,11 +554,7 @@ export default {
                     }  
                 } else if (interaction.isModalSubmit()) {  
                     
-                    // ==========================================
-                    //  OPGESPLITSTE COMMANDO-LOGICA MODALS
-                    // ==========================================
-
-                    // 1. /blacklist
+                    // Modals /blacklist, /remove-blacklist, /warn-intrekken etc.
                     if (interaction.customId.startsWith('blacklist_modal:')) {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         const targetUserId = interaction.customId.split(':')[1];
@@ -543,7 +567,7 @@ export default {
                         try {
                             await targetMember.roles.add(BLACKLIST_ROLE_ID);
                         } catch (err) {
-                            return interaction.editReply({ content: '❌ Kon de blacklist rol niet toewijzen. Staat de bot wel hoog genoeg?' });
+                            return interaction.editReply({ content: '❌ Kon de blacklist rol niet toewijzen.' });
                         }
 
                         const logEmbed = new EmbedBuilder()
@@ -561,7 +585,6 @@ export default {
                         return interaction.editReply({ content: '✅ Medewerker is succesvol op de blacklist gezet.' });
                     }
 
-                    // 2. /remove-blacklist
                     if (interaction.customId.startsWith('remove_blacklist_modal:')) {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         const targetUserId = interaction.customId.split(':')[1];
@@ -592,12 +615,9 @@ export default {
                         return interaction.editReply({ content: '✅ Medewerker is succesvol van de blacklist gehaald.' });
                     }
 
-                    // 3. /warn-intrekken (Verwijdert gegarandeerd de hoogst actieve strike)
                     if (interaction.customId.startsWith('warn_intrekken_modal:')) {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         const targetUserId = interaction.customId.split(':')[1];
-                        
-                        // Forceer een verse API-fetch om de allernieuwste live rollen op te halen
                         const targetMember = await interaction.guild.members.fetch({ user: targetUserId, force: true }).catch(() => null);
                         if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
 
@@ -615,10 +635,10 @@ export default {
                                 await targetMember.roles.remove(STRIKE_1);
                                 geschrapteStrike = 'Strike 1 Verwijderd';
                             } else {
-                                return interaction.editReply({ content: '❌ Deze persoon heeft op dit moment geen actieve Strike 1 of Strike 2 rollen!' });
+                                return interaction.editReply({ content: '❌ Deze persoon heeft geen actieve Strike rollen.' });
                             }
                         } catch (err) {
-                            return interaction.editReply({ content: '❌ Fout bij het intrekken van de strike rol. Controleer bot-permissies.' });
+                            return interaction.editReply({ content: '❌ Fout bij het intrekken van de strike rol.' });
                         }
 
                         const logEmbed = new EmbedBuilder()
@@ -636,62 +656,6 @@ export default {
                         return interaction.editReply({ content: `✅ Sanctie succesvol ingetrokken (${geschrapteStrike}).` });
                     }
 
-                    // Oude algemene warn/ontslag handler (indien nog in gebruik voor reguliere warns)
-                    if (interaction.customId.startsWith('warn_modal:')) {
-                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                        const targetUserId = interaction.customId.split(':')[1];
-                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-                        if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
-
-                        const warnType = interaction.fields.getTextInputValue('warn_type').toLowerCase();
-                        const reason = interaction.fields.getTextInputValue('warn_reason');
-                        const note = interaction.fields.getTextInputValue('warn_note') || 'Geen extra opmerkingen';
-                        
-                        const ROLE_IDS = { STRIKE_1: '1515778024333774959', STRIKE_2: '1515778110174531866' };
-                        let title = '⚠️ SANCTIE UITGEVOERD';
-                        let embedColor = '#ffaa00'; 
-                        let actieMelding = 'Waarschuwing geregistreerd';
-                        let isOntslag = false;
-
-                        try {
-                            if (warnType.includes('strike 1')) {
-                                await targetMember.roles.add(ROLE_IDS.STRIKE_1);
-                                actieMelding = 'Rol `Strike 1` toegewezen.';
-                            } else if (warnType.includes('strike 2')) {
-                                await targetMember.roles.add(ROLE_IDS.STRIKE_2);
-                                actieMelding = 'Rol `Strike 2` toegewezen.';
-                                embedColor = '#ff5500';
-                            } else if (warnType.includes('ontslag')) {
-                                title = '🚨 MEDEWERKER ONTSLAGEN';
-                                embedColor = '#ff0000';
-                                isOntslag = true;
-                                actieMelding = 'Medewerker ontslagen en staff-rollen gestript.';
-                            }
-                        } catch (err) {
-                            return interaction.editReply({ content: `❌ Fout bij het aanpassen van de rollen.` });
-                        }
-
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle(title)
-                            .setColor(embedColor)
-                            .addFields(
-                                { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
-                                { name: '📊 Status / Actie', value: `\`${actieMelding}\``, inline: true },
-                                { name: '📄 Reden', value: reason, inline: false },
-                                { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
-                            ).setTimestamp();
-
-                        if (isOntslag) {
-                            const rolesToRemove = targetMember.roles.cache.filter(role => role.id !== interaction.guild.id && !role.managed);
-                            if (rolesToRemove.size > 0) await targetMember.roles.remove(rolesToRemove).catch(() => {});
-                        }
-
-                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
-                        if (changelogsChannel) await changelogsChannel.send({ embeds: [logEmbed] });
-                        return interaction.editReply({ content: `✅ Verwerkt in <#${changelogsChannel?.id}>.` });
-                    }
-
-                    // Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
                     if (interaction.customId === 'update_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -713,82 +677,51 @@ export default {
                                 { name: '🛠️ Wijzigingen', value: `${updateChanges}`, inline: false },
                                 { name: '📌 Type / Versie', value: `\`${updateVersion}\``, inline: true },
                                 { name: '👤 Doorgegeven Door', value: `<@${interaction.user.id}>`, inline: true },
-                                { name: '📅 Datum & Tijd', value: `<t:${Math.floor(Date.now() / 1000)}:F> (<t:${Math.floor(Date.now() / 1000)}:R>)`, inline: false }
+                                { name: '📅 Datum & Tijd', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
                             )
-                            .setThumbnail(interaction.guild.iconURL({ dynamic: true }))
-                            .setTimestamp()
-                            .setFooter({ text: `TitanBot Updates • NexSpace`, iconURL: client.user.displayAvatarURL() });
+                            .setTimestamp();
 
                         await updatesChannel.send({ embeds: [updateEmbed] });
-                        return interaction.editReply({ content: `✅ De update is succesvol geplaatst in <#${updatesChannel.id}>!` });
+                        return interaction.editReply({ content: `✅ De update is geplaatst!` });
                     }
 
                     if (interaction.customId === 'review_final_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                         const userChoices = tempReviewCache.get(interaction.user.id);
-                        if (!userChoices) {
-                            return interaction.editReply({ content: '❌ Er ging iets mis met je selectie. Typ opnieuw `/review`.' });
-                        }
+                        if (!userChoices) return interaction.editReply({ content: '❌ Selectie-fout.' });
 
                         const product = interaction.fields.getTextInputValue('review_product');
                         const price = interaction.fields.getTextInputValue('review_price');
                         const legit = interaction.fields.getTextInputValue('review_legit');
 
-                        let targetChannelName = '';
-                        let shopName = '';
-                        let embedColor = '#00fbff';
+                        let targetChannelName = userChoices.shop === 'mts' ? '┃⭐・reviews' : '┃🌿・proofs';
+                        let embedColor = userChoices.shop === 'mts' ? '#ffaa00' : '#00ff66';
 
-                        if (userChoices.shop === 'mts') {
-                            targetChannelName = '┃⭐・reviews';
-                            shopName = 'MTS Shop';
-                            embedColor = '#ffaa00'; 
-                        } else {
-                            targetChannelName = '┃🌿・proofs';
-                            shopName = 'NexSpace Shop';
-                            embedColor = '#00ff66'; 
-                        }
-
-                        const reviewChannel = interaction.guild.channels.cache.find(c => 
-                            c.name === targetChannelName || 
-                            c.name === 'reviews' || 
-                            c.name === 'proofs' ||
-                            c.name.includes(userChoices.shop === 'mts' ? 'review' : 'proof')
-                        );
-
-                        if (!reviewChannel) {
-                            return interaction.editReply({ content: `❌ Kon het juiste review/proof kanaal voor **${shopName}** niet vinden.` });
-                        }
+                        const reviewChannel = interaction.guild.channels.cache.find(c => c.name === targetChannelName);
+                        if (!reviewChannel) return interaction.editReply({ content: `❌ Kanaal ${targetChannelName} niet gevonden.` });
 
                         const reviewEmbed = new EmbedBuilder()
-                            .setTitle(`⭐ NIEUWE ${shopName.toUpperCase()} REVIEW`)
+                            .setTitle(`⭐ NIEUWE ${userChoices.shop.toUpperCase()} REVIEW`)
                             .setColor(embedColor)
-                            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
                             .addFields(
-                                { name: '👤 Koper', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                                { name: '👤 Koper', value: `<@${interaction.user.id}>`, inline: true },
                                 { name: '📦 Product', value: `\`${product}\``, inline: true },
                                 { name: '💰 Prijs', value: `\`${price}\``, inline: true },
-                                { name: '✅ Legit Check & Ervaring', value: `${legit}`, inline: false },
+                                { name: '✅ Legit Check', value: `${legit}`, inline: false },
                                 { name: 'Beoordeling', value: `${userChoices.stars}`, inline: false }
-                            )
-                            .setTimestamp()
-                            .setFooter({ text: `Bedankt voor je review bij ${shopName}!`, iconURL: interaction.guild.iconURL() });
+                            ).setTimestamp();
 
                         await reviewChannel.send({ embeds: [reviewEmbed] });
                         tempReviewCache.delete(interaction.user.id); 
-
-                        return interaction.editReply({ content: `✅ Je review is succesvol geplaatst in <#${reviewChannel.id}>!` });
+                        return interaction.editReply({ content: '✅ Review geplaatst!' });
                     }
 
                     if (interaction.customId.startsWith('app_modal_')) {  
                         try {  
                             await handleApplicationModal(interaction);  
                         } catch (error) {  
-                            await handleInteractionError(interaction, error, withTraceContext({  
-                                type: 'modal',  
-                                customId: interaction.customId,  
-                                handler: 'application'  
-                            }, interactionTraceContext));  
+                            await handleInteractionError(interaction, error, withTraceContext({ type: 'modal', customId: interaction.customId }, interactionTraceContext));  
                         }  
                         return;  
                     }  
@@ -797,69 +730,24 @@ export default {
                         try {  
                             await handleApplicationReviewModal(interaction);  
                         } catch (error) {  
-                            await handleInteractionError(interaction, error, withTraceContext({  
-                                type: 'modal',  
-                                customId: interaction.customId,  
-                                handler: 'application_review'  
-                            }, interactionTraceContext));  
+                            await handleInteractionError(interaction, error, withTraceContext({ type: 'modal', customId: interaction.customId }, interactionTraceContext));  
                         }  
-                        return;  
-                    }  
-
-                    if (interaction.customId.startsWith('jtc_')) {  
                         return;  
                     }  
 
                     const [customId, ...args] = interaction.customId.split(':');  
                     const modal = client.modals.get(customId);  
 
-                    if (!modal) {  
-                        if (!interaction.customId.includes(':')) {  
-                            return;  
+                    if (modal) {  
+                        try {  
+                            await modal.execute(interaction, client, args);  
+                        } catch (error) {  
+                            await handleInteractionError(interaction, error, withTraceContext({ type: 'modal', customId: interaction.customId }, interactionTraceContext));  
                         }  
-
-                        throw createError(  
-                            `No modal handler found for ${customId}`,  
-                            ErrorTypes.CONFIGURATION,  
-                            'This form is not available.',  
-                            withTraceContext({ customId }, interactionTraceContext)  
-                        );  
-                    }  
-
-                    try {  
-                        await modal.execute(interaction, client, args);  
-                    } catch (error) {  
-                        await handleInteractionError(interaction, error, withTraceContext({  
-                            type: 'modal',  
-                            customId: interaction.customId,  
-                            handler: 'general'  
-                        }, interactionTraceContext));  
                     }  
                 }  
             } catch (error) {  
-                logger.error('Unhandled error in interactionCreate:', {  
-                    event: 'interaction.unhandled_error',  
-                    errorCode: 'INTERACTION_UNHANDLED_ERROR',  
-                    error,  
-                    traceId: interactionTraceContext.traceId,  
-                    interactionId: interaction.id,  
-                    guildId: interaction.guildId,  
-                    userId: interaction.user?.id  
-                });  
-
-                try {  
-                    const ephemeralErrorMessage = {  
-                        embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')],  
-                        flags: MessageFlags.Ephemeral  
-                    };  
-                    if (interaction.deferred) {  
-                        await interaction.editReply({ embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')] });  
-                    } else if (interaction.replied) {  
-                        await interaction.followUp(ephemeralErrorMessage);  
-                    } else {  
-                        await interaction.reply(ephemeralErrorMessage);  
-                    }  
-                } catch (replyError) {}  
+                logger.error('Unhandled error:', { error, traceId: interactionTraceContext.traceId });  
             }  
         });
     }
