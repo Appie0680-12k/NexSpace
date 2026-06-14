@@ -397,6 +397,66 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isModalSubmit()) {  
+                    // Afhandeling van het Warn / Ontslag formulier
+                    if (interaction.customId.startsWith('warn_modal:')) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                        
+                        const targetUserId = interaction.customId.split(':')[1];
+                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                        
+                        const warnType = interaction.fields.getTextInputValue('warn_type').toLowerCase();
+                        const reason = interaction.fields.getTextInputValue('warn_reason');
+                        const note = interaction.fields.getTextInputValue('warn_note') || 'Geen extra opmerkingen';
+                        
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs' || c.name.includes('changelog'));
+                        
+                        if (!changelogsChannel) {
+                            return interaction.editReply({ content: '❌ Fout: Het kanaal `#changelogs` kon niet worden gevonden!' });
+                        }
+
+                        let title = '⚠️ OFFICIËLE WAARSCHUWING';
+                        let embedColor = '#ffaa00'; // Oranje voor waarschuwing
+                        let isOntslag = false;
+
+                        // Checken of het ontslag of 2e waarschuwing (ontslag) betreft
+                        if (warnType.includes('ontslag') || warnType.includes('2e')) {
+                            title = '🚨 MEDEWERKER ONTSLAGEN';
+                            embedColor = '#ff0000'; // Rood voor ontslag
+                            isOntslag = true;
+                        }
+
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle(title)
+                            .setColor(embedColor)
+                            .addFields(
+                                { name: '👤 Medewerker', value: targetMember ? `<@${targetMember.id}>` : `ID: ${targetUserId}`, inline: true },
+                                { name: '📊 Sanctie Niveau', value: `\`${warnType.toUpperCase()}\``, inline: true },
+                                { name: '📆 Datum', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
+                                { name: '📄 Reden', value: `${reason}`, inline: false },
+                                { name: '💡 Opmerking', value: `${note}`, inline: false },
+                                { name: '🛡️ Uitgeschreven Door', value: `<@${interaction.user.id}>`, inline: false }
+                            )
+                            .setTimestamp();
+
+                        // Als het ontslag is, gaan we alle staff-rollen strippen
+                        if (isOntslag && targetMember) {
+                            const rolesToRemove = targetMember.roles.cache.filter(role => 
+                                role.id !== interaction.guild.id && 
+                                role.managed === false
+                            );
+                            
+                            if (rolesToRemove.size > 0) {
+                                await targetMember.roles.remove(rolesToRemove, 'Automatisch gestript wegens ontslag').catch(err => {
+                                    logger.error(`Kon rollen niet volledig strippen: ${err.message}`);
+                                });
+                                logEmbed.setDescription('⚠️ *Alle rollen van dit lid zijn automatisch ingetrokken.*');
+                            }
+                        }
+
+                        await changelogsChannel.send({ embeds: [logEmbed] });
+                        return interaction.editReply({ content: `✅ Sanctie succesvol verwerkt en geplaatst in <#${changelogsChannel.id}>!` });
+                    }
+
                     if (interaction.customId === 'review_final_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
