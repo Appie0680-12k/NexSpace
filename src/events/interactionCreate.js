@@ -222,21 +222,21 @@ export default {
                         }  
                     }  
                 } else if (interaction.isButton()) {  
-                    // GEUPDATE TICKET LOGICA: Vangt nu alle bekende ticket customId's flexibel op
+                    // Ticket logica met gecorrigeerde categorie-prioriteit
                     if (interaction.customId === 'open_purchase_ticket' || interaction.customId === 'create_ticket' || interaction.customId === 'open_ticket') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         
-                        // Zoekt flexibel naar de juiste categorie (MTS Shop Aankopen, algemene Tickets of alles wat 'ticket' bevat)
+                        // Zoekt nu EERST naar '📨 | Tickets Vragen', daarna pas naar overige back-ups
                         const category = interaction.guild.channels.cache.find(c => 
-                            (c.name === 'MTS Shop Aankopen' || c.name === 'Tickets' || c.name.toLowerCase().includes('ticket')) && 
-                            c.type === ChannelType.GuildCategory
+                            c.type === ChannelType.GuildCategory && 
+                            (c.name === '📨 | Tickets Vragen' || c.name === 'Tickets' || c.name === 'MTS Shop Aankopen' || c.name.toLowerCase().includes('ticket'))
                         );
 
                         if (!category) {
-                            return interaction.editReply({ content: '❌ Er is geen geschikte ticket-categorie gevonden in de server. Maak deze eerst aan!' });
+                            return interaction.editReply({ content: '❌ Er is geen geschikte ticket-categorie gevonden (`📨 | Tickets Vragen` bestaat niet). Maak deze eerst aan!' });
                         }
 
-                        // Maak het ticket-kanaal aan onder de gevonden categorie
+                        // Maak het ticket-kanaal aan onder de juiste categorie
                         const ticketChannel = await interaction.guild.channels.create({
                             name: `🎫-ticket-${interaction.user.username}`,
                             type: ChannelType.GuildText,
@@ -324,7 +324,6 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isStringSelectMenu()) {  
-                    // Opvangen van het Review Keuzemenu (Shop en Sterren)
                     if (interaction.customId === 'review_select_shop' || interaction.customId === 'review_select_stars') {
                         let userChoices = tempReviewCache.get(interaction.user.id) || { shop: null, stars: null };
 
@@ -333,7 +332,6 @@ export default {
 
                         tempReviewCache.set(interaction.user.id, userChoices);
 
-                        // Als beide opties zijn geselecteerd, openen we direct het formulier!
                         if (userChoices.shop && userChoices.stars) {
                             const modal = new ModalBuilder()
                                 .setCustomId('review_final_modal')
@@ -399,7 +397,6 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isModalSubmit()) {  
-                    // Afhandeling van de ingezonden Review Form
                     if (interaction.customId === 'review_final_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
