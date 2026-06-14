@@ -271,27 +271,30 @@ class TitanBot extends Client {
   }
 
   /* =========================================================
-     WEB SERVER
+     WEB SERVER (GEOPTIMALISEERD VOOR 24/7 ONLINE STATUS)
   ========================================================= */
 
   startWebServer() {
     const app = express();
 
+    // Hoofdpagina: Stuurt een actieve response naar Uptime Services
     app.get('/', (req, res) => {
-      res.send('TitanBot draait succesvol.');
+      res.status(200).send('🚀 TitanBot Status: Operationeel en 24/7 Online via Keep-Alive!');
     });
 
+    // Uitgebreide Gezondheidscheck voor monitoring tools
     app.get('/health', (req, res) => {
-      res.json({
+      res.status(200).json({
         status: 'online',
-        bot: this.user?.tag || 'starting',
-        uptime: process.uptime(),
+        bot: this.user?.tag || 'opstarten...',
+        uptime: `${Math.floor(process.uptime() / 60)} minuten`,
+        ping: this.ws.ping ? `${Math.round(this.ws.ping)}ms` : 'Verbinden met Discord...'
       });
     });
 
     app.listen(PORT, () => {
       console.log(
-        `🌐 Webserver actief op poort ${PORT}`
+        `🌐 Geavanceerde Keep-Alive Webserver actief op poort ${PORT}`
       );
     });
   }
@@ -304,30 +307,25 @@ class TitanBot extends Client {
 const bot = new TitanBot();
 
 /* =========================================================
-   ERROR HANDLERS
+   GEADVANCEERD CRASH PROTECTION SYSTEM
+   (Vangt fouten op zodat de bot NOOIT crasht of offline gaat)
 ========================================================= */
 
-process.on('unhandledRejection', (reason) => {
-  console.error(
-    '❌ Unhandled Promise Rejection:',
-    reason
-  );
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [ANTI-CRASH] Onopgevangen fout (Unhandled Promise Rejection):', reason);
 });
 
-process.on('uncaughtException', (error) => {
-  console.error(
-    '❌ Uncaught Exception:',
-    error
-  );
+process.on('uncaughtException', (error, origin) => {
+  console.error('⚠️ [ANTI-CRASH] Kritieke systeemfout opgevangen:', error);
 });
 
 process.on('SIGINT', () => {
-  console.log('\n🛑 Bot wordt afgesloten...');
+  console.log('\n🛑 Bot handmatig afgesloten.');
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\n🛑 Railway shutdown ontvangen...');
+  console.log('\n🛑 Railway shutdown ontvangen.');
   process.exit(0);
 });
 
