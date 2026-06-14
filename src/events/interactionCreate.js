@@ -497,20 +497,15 @@ export default {
                             }
                         }
 
-                        // Stuur naar het updates of changelogs kanaal
-                        const changelogsChannel = interaction.guild.channels.cache.find(c => 
-                            c.name === '┃⚙️・updates' || 
-                            c.name === 'updates' || 
-                            c.name === 'changelogs' ||
-                            c.name.includes('changelog')
-                        );
+                        // HIER ZOEKEN WE SPECIFIEK EN ALLEEN NAAR #changelogs VOOR DE WARNS
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
                         
                         if (!changelogsChannel) {
-                            return interaction.editReply({ content: `❌ Fout: Er kon geen geschikt logkanaal gevonden worden!` });
+                            return interaction.editReply({ content: `❌ Fout: Het logkanaal \`#changelogs\` kon niet gevonden worden!` });
                         }
 
                         await changelogsChannel.send({ embeds: [logEmbed] });
-                        return interaction.editReply({ content: `✅ Actie succesvol verwerkt! ${actieMelding}` });
+                        return interaction.editReply({ content: `✅ Actie succesvol verwerkt in <#${changelogsChannel.id}>!` });
                     }
 
                     // Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
@@ -521,14 +516,10 @@ export default {
                         const updateChanges = interaction.fields.getTextInputValue('update_changes');
                         const updateVersion = interaction.fields.getTextInputValue('update_version') || 'Regulier';
 
-                        const changelogsChannel = interaction.guild.channels.cache.find(c => 
-                            c.name === '┃⚙️・updates' || 
-                            c.name === 'updates' || 
-                            c.name === 'changelogs' || 
-                            c.name.includes('update')
-                        );
+                        // HIER ZOEKEN WE SPECIFIEK EN ALLEEN NAAR ┃⚙️・updates VOOR DE BOT UPDATES
+                        const updatesChannel = interaction.guild.channels.cache.find(c => c.name === '┃⚙️・updates');
 
-                        if (!changelogsChannel) {
+                        if (!updatesChannel) {
                             return interaction.editReply({ content: '❌ Fout: Het kanaal `┃⚙️・updates` kon niet worden gevonden!' });
                         }
 
@@ -546,8 +537,8 @@ export default {
                             .setTimestamp()
                             .setFooter({ text: `TitanBot Updates • NexSpace`, iconURL: client.user.displayAvatarURL() });
 
-                        await changelogsChannel.send({ embeds: [updateEmbed] });
-                        return interaction.editReply({ content: `✅ De update is succesvol geplaatst in <#${changelogsChannel.id}>!` });
+                        await updatesChannel.send({ embeds: [updateEmbed] });
+                        return interaction.editReply({ content: `✅ De update is succesvol geplaatst in <#${updatesChannel.id}>!` });
                     }
 
                     if (interaction.customId === 'review_final_modal') {
