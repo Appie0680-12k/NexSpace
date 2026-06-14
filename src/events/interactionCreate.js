@@ -457,7 +457,7 @@ export default {
                         return interaction.editReply({ content: `✅ Sanctie succesvol verwerkt en geplaatst in <#${changelogsChannel.id}>!` });
                     }
 
-                    // NIEUW: Afhandeling van de /update pop-up (Modal)
+                    // NIEUW: Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
                     if (interaction.customId === 'update_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -465,10 +465,16 @@ export default {
                         const updateChanges = interaction.fields.getTextInputValue('update_changes');
                         const updateVersion = interaction.fields.getTextInputValue('update_version') || 'Regulier';
 
-                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs' || c.name.includes('changelog'));
+                        // Zoekt nu direct en specifiek naar jouw kanaal '┃⚙️・updates'
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => 
+                            c.name === '┃⚙️・updates' || 
+                            c.name === 'updates' || 
+                            c.name === 'changelogs' || 
+                            c.name.includes('update')
+                        );
 
                         if (!changelogsChannel) {
-                            return interaction.editReply({ content: '❌ Fout: Het kanaal `#changelogs` kon niet worden gevonden!' });
+                            return interaction.editReply({ content: '❌ Fout: Het kanaal `┃⚙️・updates` kon niet worden gevonden!' });
                         }
 
                         const updateEmbed = new EmbedBuilder()
