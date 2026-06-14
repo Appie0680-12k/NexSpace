@@ -457,6 +457,38 @@ export default {
                         return interaction.editReply({ content: `✅ Sanctie succesvol verwerkt en geplaatst in <#${changelogsChannel.id}>!` });
                     }
 
+                    // NIEUW: Afhandeling van de /update pop-up (Modal)
+                    if (interaction.customId === 'update_modal') {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                        const updateTitle = interaction.fields.getTextInputValue('update_title');
+                        const updateChanges = interaction.fields.getTextInputValue('update_changes');
+                        const updateVersion = interaction.fields.getTextInputValue('update_version') || 'Regulier';
+
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs' || c.name.includes('changelog'));
+
+                        if (!changelogsChannel) {
+                            return interaction.editReply({ content: '❌ Fout: Het kanaal `#changelogs` kon niet worden gevonden!' });
+                        }
+
+                        const updateEmbed = new EmbedBuilder()
+                            .setTitle(`🚀 ${updateTitle.toUpperCase()}`)
+                            .setDescription(`Hier is een overzicht van de nieuwste wijzigingen:`)
+                            .setColor('#00ffaa') // Fijne, frisse groen/blauwe kleur
+                            .addFields(
+                                { name: '🛠️ Wijzigingen', value: `${updateChanges}`, inline: false },
+                                { name: '📌 Type / Versie', value: `\`${updateVersion}\``, inline: true },
+                                { name: '👤 Doorgegeven Door', value: `<@${interaction.user.id}>`, inline: true },
+                                { name: '📅 Datum & Tijd', value: `<t:${Math.floor(Date.now() / 1000)}:F> (<t:${Math.floor(Date.now() / 1000)}:R>)`, inline: false }
+                            )
+                            .setThumbnail(interaction.guild.iconURL({ dynamic: true }))
+                            .setTimestamp()
+                            .setFooter({ text: `TitanBot Updates • NexSpace`, iconURL: client.user.displayAvatarURL() });
+
+                        await changelogsChannel.send({ embeds: [updateEmbed] });
+                        return interaction.editReply({ content: `✅ De update is succesvol geplaatst in <#${changelogsChannel.id}>!` });
+                    }
+
                     if (interaction.customId === 'review_final_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
