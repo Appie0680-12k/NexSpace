@@ -1,102 +1,48 @@
-import { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, ChannelType, MessageFlags } from 'discord.js';
-import { createEmbed, errorEmbed, successEmbed, infoEmbed, warningEmbed } from '../../utils/embeds.js';
-import { logModerationAction } from '../../utils/moderation.js';
-import { logger } from '../../utils/logger.js';
-import { WarningService } from '../../services/warningService.js';
-import { handleInteractionError } from '../../utils/errorHandler.js';
-import { InteractionHelper } from '../../utils/interactionHelper.js';
+import { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
+
 export default {
     data: new SlashCommandBuilder()
-        .setName("warn")
-        .setDescription("Warn a user")
-        .addUserOption((o) =>
-            o
-                .setName("target")
-                .setRequired(true)
-                .setDescription("User to warn"),
-        )
-        .addStringOption((o) =>
-            o
-                .setName("reason")
-                .setRequired(true)
-                .setDescription("Reason for the warning"),
-        )
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
-    category: "moderation",
+        .setName('warn')
+        .setDescription('Geef een stafflid een officiële waarschuwing of ontslag.')
+        .addUserOption(option => 
+            option.setName('gebruiker')
+                .setDescription('Het stafflid dat de waarschuwing krijgt')
+                .setRequired(true)),
 
-    async execute(interaction, config, client) {
-        const deferSuccess = await InteractionHelper.safeDefer(interaction);
-        if (!deferSuccess) {
-            logger.warn(`Warn interaction defer failed`, {
-                userId: interaction.user.id,
-                guildId: interaction.guildId,
-                commandName: 'warn'
-            });
-            return;
-        }
+    async execute(interaction) {
+        const targetUser = interaction.options.getUser('gebruiker');
 
-        try {
-                if (!interaction.member.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-                    throw new Error("You need the `Moderate Members` permission to issue warnings.");
-                }
+        const modal = new ModalBuilder()
+            .setCustomId(`warn_modal:${targetUser.id}`)
+            .setTitle(`Sanctie voor ${targetUser.username}`);
 
-                const target = interaction.options.getUser("target");
-                const member = interaction.options.getMember("target");
-                const reason = interaction.options.getString("reason");
-                const moderator = interaction.user;
-                const guildId = interaction.guildId;
+        const typeInput = new TextInputBuilder()
+            .setCustomId('warn_type')
+            .setLabel('Type sanctie (Typ: 1e warn / 2e ontslag / direct ontslag)')
+            .setPlaceholder('Bijv: 1e warn')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
-                if (!member) {
-                    throw new Error("The target user is not currently in this server.");
-                }
+        const reasonInput = new TextInputBuilder()
+            .setCustomId('warn_reason')
+            .setLabel('Reden')
+            .setPlaceholder('Waarom krijgt dit stafflid deze sanctie?')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true);
 
-                
-                const result = await WarningService.addWarning({
-                    guildId,
-                    userId: target.id,
-                    moderatorId: moderator.id,
-                    reason,
-                    timestamp: Date.now()
-                });
+        const noteInput = new TextInputBuilder()
+            .setCustomId('warn_note')
+            .setLabel('Opmerking')
+            .setPlaceholder('Eventuele extra opmerkingen (optioneel)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
 
-                if (!result.success) {
-                    throw new Error("Failed to store warning in database");
-                }
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(typeInput),
+            new ActionRowBuilder().addComponents(reasonInput),
+            new ActionRowBuilder().addComponents(noteInput)
+        );
 
-                const totalWarns = result.totalCount;
-
-                await logModerationAction({
-                    client,
-                    guild: interaction.guild,
-                    event: {
-                        action: "User Warned",
-                        target: `${target.tag} (${target.id})`,
-                        executor: `${moderator.tag} (${moderator.id})`,
-                        reason,
-                        metadata: {
-                            userId: target.id,
-                            moderatorId: moderator.id,
-                            totalWarns,
-                            warningNumber: totalWarns,
-                            warningId: result.id
-                        }
-                    }
-                });
-
-                await InteractionHelper.safeEditReply(interaction, {
-                    embeds: [
-                        successEmbed(
-                            `⚠️ **Warned** ${target.tag}`,
-                            `**Reason:** ${reason}\n**Total Warns:** ${totalWarns}`,
-                        ),
-                    ],
-                });
-        } catch (error) {
-            logger.error('Warn command error:', error);
-            await handleInteractionError(interaction, error, { subtype: 'warn_failed' });
-        }
+        await interaction.showModal(modal);
     }
 };
-
-
-
