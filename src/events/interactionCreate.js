@@ -12,10 +12,9 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 
 const tempReviewCache = new Map();
 
-// Globale cache om de status en antwoorden van lopende sollicitaties per gebruiker te onthouden
-const actieveSollicitaties = new Map();
+// Waterdichte globale cache om lopende sollicitaties te onthouden buiten de interactie-scope om
+const activeApps = new Map();
 
-// Vragenlijsten voor de DM-sollicitaties
 const REGULIERE_VRAGEN = [
     "Wat is je Naam?",
     "Wat is je Motivatie?",
@@ -246,12 +245,11 @@ export default {
                 } else if (interaction.isButton()) {  
 
                     // ==========================================
-                    //  WATERDICHT SOLLICITATIE DM SYSTEEM (GEFIXT)
+                    //  WATERDICHT SOLLICITATIE DM SYSTEEM
                     // ==========================================
                     if (interaction.customId === 'start_apply_regulier' || interaction.customId === 'start_apply_management') {
-                        // Voorkom dat een gebruiker meerdere sessies tegelijk start
-                        if (actieveSollicitaties.has(interaction.user.id)) {
-                            return interaction.reply({ content: '❌ Je hebt al een actieve sollicitatieprocedure openstaan in je DM! Rond deze eerst af.', flags: [MessageFlags.Ephemeral] });
+                        if (activeApps.has(interaction.user.id)) {
+                            return interaction.reply({ content: '❌ Je hebt al een actieve sollicitatie openstaan in je DM!', flags: [MessageFlags.Ephemeral] });
                         }
 
                         await interaction.reply({ content: '⏳ We sturen je nu een bericht in je DM om het sollicitatiegesprek te starten!', flags: [MessageFlags.Ephemeral] });
@@ -263,15 +261,6 @@ export default {
                         try {
                             const dmChannel = await interaction.user.createDM();
                             
-                            // Registreer de sessie stabiel in de globale Map cache
-                            actieveSollicitaties.set(interaction.user.id, {
-                                guild: interaction.guild,
-                                vacatureNaam: vacatureNaam,
-                                vragenlijst: vragenlijst,
-                                huidigeIndex: 0,
-                                antwoorden: []
-                            });
-
                             // 1. Stuur de "Application Started" embed
                             const startEmbed = new EmbedBuilder()
                                 .setTitle('Application Started')
@@ -287,73 +276,73 @@ export default {
                                 .setColor('#3498db');
                             await dmChannel.send({ embeds: [eersteVraagEmbed] });
 
-                            // 3. Start de stabiele message collector binnen het DM-kanaal
+                            // 3. Maak een inline collector aan gekoppeld aan de client om garbage collection te voorkomen
                             const collector = dmChannel.createMessageCollector({
                                 filter: m => m.author.id === interaction.user.id && !m.author.bot,
-                                time: 600000 // 10 minuten per vraag
+                                time: 900000 // 15 minuten totale tijd
+                            });
+
+                            // Zet de complete state in onze stabiele Map cache
+                            activeApps.set(interaction.user.id, {
+                                index: 0,
+                                vragen: vragenlijst,
+                                antwoorden: [],
+                                vacature: vacatureNaam,
+                                guild: interaction.guild,
+                                collector: collector
                             });
 
                             collector.on('collect', async (msg) => {
-                                try {
-                                    const huidigeSessie = actieveSollicitaties.get(interaction.user.id);
-                                    if (!huidigeSessie) {
-                                        collector.stop('geannuleerd');
-                                        return;
-                                    }
+                                const session = activeApps.get(interaction.user.id);
+                                if (!session) return collector.stop();
 
-                                    // Sla het gegeven antwoord op
-                                    huidigeSessie.antwoorden.push({
-                                        vraag: huidigeSessie.vragenlijst[huidigeSessie.huidigeIndex],
-                                        antwoord: msg.content
-                                    });
+                                // Sla het antwoord op
+                                session.antwoorden.push({
+                                    vraag: session.vragen[session.index],
+                                    antwoord: msg.content
+                                });
 
-                                    // Verhoog de index veilig via de globale status
-                                    huidigeSessie.huidigeIndex++;
-                                    actieveSollicitaties.set(interaction.user.id, huidigeSessie);
+                                session.index++;
 
-                                    if (huidigeSessie.huidigeIndex < huidigeSessie.vragenlijst.length) {
-                                        // Stuur de volgende vraag op basis van de bijgewerkte index
-                                        const volgendeVraagEmbed = new EmbedBuilder()
-                                            .setTitle(huidigeSessie.vacatureNaam)
-                                            .setDescription(`**${huidigeSessie.huidigeIndex + 1}/${huidigeSessie.vragenlijst.length}.** ${huidigeSessie.vragenlijst[huidigeSessie.huidigeIndex]}`)
-                                            .addFields({ name: '\u200B', value: '*To answer this question, please send a message to the bot with your response.*' })
-                                            .setColor('#3498db');
-                                        
-                                        await dmChannel.send({ embeds: [volgendeVraagEmbed] });
-                                        collector.resetTimer(); // Reset de 10 minuten limiet voor de nieuwe vraag
-                                    } else {
-                                        collector.stop('voltooid');
-                                    }
-                                } catch (error) {
-                                    logger.error(`Fout tijdens verzamelen van sollicitatiebericht: ${error.message}`);
-                                    collector.stop('fout');
+                                if (session.index < session.vragen.length) {
+                                    // Volgende vraag sturen
+                                    const volgendeVraagEmbed = new EmbedBuilder()
+                                        .setTitle(session.vacature)
+                                        .setDescription(`**${session.index + 1}/${session.vragen.length}.** ${session.vragen[session.index]}`)
+                                        .addFields({ name: '\u200B', value: '*To answer this question, please send a message to the bot with your response.*' })
+                                        .setColor('#3498db');
+                                    
+                                    await dmChannel.send({ embeds: [volgendeVraagEmbed] });
+                                    collector.resetTimer();
+                                } else {
+                                    // Alle vragen zijn beantwoord!
+                                    collector.stop('voltooid');
                                 }
                             });
 
                             collector.on('end', async (collected, reason) => {
-                                const finaleSessie = actieveSollicitaties.get(interaction.user.id);
-                                // Verwijder de gebruiker altijd uit de actieve cache bij beëindiging
-                                actieveSollicitaties.delete(interaction.user.id);
+                                const session = activeApps.get(interaction.user.id);
+                                activeApps.delete(interaction.user.id); // Altijd opschonen
 
-                                if (reason === 'voltooid' && finaleSessie) {
+                                if (reason === 'voltooid' && session) {
                                     const eindEmbed = new EmbedBuilder()
                                         .setTitle('✅ Sollicitatie Afgerond')
                                         .setDescription('Bedankt! Je sollicitatie is succesvol ontvangen door ons management team. Je hoort zo snel mogelijk van ons!')
                                         .setColor('#2ecc71');
                                     await dmChannel.send({ embeds: [eindEmbed] });
 
-                                    // Stuur de opgebouwde review naar het logkanaal van de server
-                                    const uitslagenChannel = finaleSessie.guild.channels.cache.find(c => c.name === 'vacatures-uitslagen');
+                                    // Stuur resultaten naar de server
+                                    const uitslagenChannel = session.guild.channels.cache.find(c => c.name === 'vacatures-uitslagen');
                                     if (!uitslagenChannel) return logger.error('Kanaal vacatures-uitslagen niet gevonden.');
 
                                     const reviewEmbed = new EmbedBuilder()
-                                        .setTitle(`📩 Nieuwe Sollicitatie: ${finaleSessie.vacatureNaam}`)
+                                        .setTitle(`📩 Nieuwe Sollicitatie: ${session.vacature}`)
                                         .setColor('#00fbff')
                                         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
                                         .setFooter({ text: `Gebruiker ID: ${interaction.user.id}` })
                                         .setTimestamp();
 
-                                    finaleSessie.antwoorden.forEach(a => {
+                                    session.antwoorden.forEach(a => {
                                         reviewEmbed.addFields({ name: a.vraag, value: a.antwoord || 'Geen antwoord gegeven', inline: false });
                                     });
 
@@ -365,17 +354,17 @@ export default {
                                     );
 
                                     await uitslagenChannel.send({ embeds: [reviewEmbed], components: [beoordeelRij] });
-                                } else if (reason !== 'geannuleerd') {
+                                } else {
                                     const timeoutEmbed = new EmbedBuilder()
                                         .setTitle('❌ Sollicitatie Verlopen')
-                                        .setDescription('Je hebt te lang gewacht met antwoorden (maximaal 10 minuten per vraag). Start de sollicitatie opnieuw via de server.')
+                                        .setDescription('Je hebt te lang gewacht met antwoorden. Start de sollicitatie opnieuw via de server.')
                                         .setColor('#e74c3c');
                                     await dmChannel.send({ embeds: [timeoutEmbed] }).catch(() => {});
                                 }
                             });
 
                         } catch (err) {
-                            actieveSollicitaties.delete(interaction.user.id);
+                            activeApps.delete(interaction.user.id);
                             logger.error(`Kan geen DM sturen naar gebruiker: ${err.message}`);
                             return interaction.followUp({ content: '❌ Het openen van een DM-gesprek is mislukt. Controleer of je privéberichten openstaan!', flags: [MessageFlags.Ephemeral] });
                         }
