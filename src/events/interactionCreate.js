@@ -226,7 +226,6 @@ export default {
                     if (interaction.customId === 'open_purchase_ticket' || interaction.customId === 'create_ticket' || interaction.customId === 'open_ticket') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         
-                        // Zoekt nu EERST naar '📨 | Tickets Vragen', daarna pas naar overige back-ups
                         const category = interaction.guild.channels.cache.find(c => 
                             c.type === ChannelType.GuildCategory && 
                             (c.name === '📨 | Tickets Vragen' || c.name === 'Tickets' || c.name === 'MTS Shop Aankopen' || c.name.toLowerCase().includes('ticket'))
@@ -236,7 +235,6 @@ export default {
                             return interaction.editReply({ content: '❌ Er is geen geschikte ticket-categorie gevonden (`📨 | Tickets Vragen` bestaat niet). Maak deze eerst aan!' });
                         }
 
-                        // Maak het ticket-kanaal aan onder de juiste categorie
                         const ticketChannel = await interaction.guild.channels.create({
                             name: `🎫-ticket-${interaction.user.username}`,
                             type: ChannelType.GuildText,
@@ -397,76 +395,150 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isModalSubmit()) {  
-                    // Afhandeling van het Warn / Ontslag formulier (Inclusief Strike & Blacklist rollen)
-                    if (interaction.customId.startsWith('warn_modal:')) {
+                    
+                    // ==========================================
+                    //  OPGESPLITSTE COMMANDO-LOGICA MODALS
+                    // ==========================================
+
+                    // 1. /blacklist
+                    if (interaction.customId.startsWith('blacklist_modal:')) {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                        
                         const targetUserId = interaction.customId.split(':')[1];
                         const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-                        
-                        if (!targetMember) {
-                            return interaction.editReply({ content: '❌ Fout: Gebruiker kon niet worden gevonden in deze server!' });
+                        if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
+
+                        const reason = interaction.fields.getTextInputValue('blacklist_reason') || 'Geen reden opgegeven';
+                        const BLACKLIST_ROLE_ID = '1515778132710523021';
+
+                        try {
+                            await targetMember.roles.add(BLACKLIST_ROLE_ID);
+                        } catch (err) {
+                            return interaction.editReply({ content: '❌ Kon de blacklist rol niet toewijzen. Staat de bot wel hoog genoeg?' });
                         }
+
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('🚨 MEDEWERKER BLACKLISTED')
+                            .setColor('#222222')
+                            .addFields(
+                                { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
+                                { name: '📊 Status', value: '`Toegevoegd aan Staff Blacklist`', inline: true },
+                                { name: '📄 Reden', value: reason, inline: false },
+                                { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
+                            ).setTimestamp();
+
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
+                        if (changelogsChannel) await changelogsChannel.send({ embeds: [logEmbed] });
+                        return interaction.editReply({ content: '✅ Medewerker is succesvol op de blacklist gezet.' });
+                    }
+
+                    // 2. /remove-blacklist
+                    if (interaction.customId.startsWith('remove_blacklist_modal:')) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                        const targetUserId = interaction.customId.split(':')[1];
+                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                        if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
+
+                        const reason = interaction.fields.getTextInputValue('remove_blacklist_reason') || 'Geen reden opgegeven';
+                        const BLACKLIST_ROLE_ID = '1515778132710523021';
+
+                        try {
+                            await targetMember.roles.remove(BLACKLIST_ROLE_ID);
+                        } catch (err) {
+                            return interaction.editReply({ content: '❌ Kon de blacklist rol niet verwijderen.' });
+                        }
+
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('🟢 BLACKLIST VERWIJDERD')
+                            .setColor('#00ff66')
+                            .addFields(
+                                { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
+                                { name: '📊 Status', value: '`Verwijderd van Staff Blacklist`', inline: true },
+                                { name: '📄 Reden', value: reason, inline: false },
+                                { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
+                            ).setTimestamp();
+
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
+                        if (changelogsChannel) await changelogsChannel.send({ embeds: [logEmbed] });
+                        return interaction.editReply({ content: '✅ Medewerker is succesvol van de blacklist gehaald.' });
+                    }
+
+                    // 3. /warn-intrekken (Verwijdert gegarandeerd de hoogst actieve strike)
+                    if (interaction.customId.startsWith('warn_intrekken_modal:')) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                        const targetUserId = interaction.customId.split(':')[1];
+                        
+                        // Forceer een verse API-fetch om de allernieuwste live rollen op te halen
+                        const targetMember = await interaction.guild.members.fetch({ user: targetUserId, force: true }).catch(() => null);
+                        if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
+
+                        const reason = interaction.fields.getTextInputValue('intrekken_reason') || 'Geen reden opgegeven';
+                        
+                        const STRIKE_1 = '1515778024333774959';
+                        const STRIKE_2 = '1515778110174531866';
+                        let geschrapteStrike = 'Geen actieve strikes gevonden';
+
+                        try {
+                            if (targetMember.roles.cache.has(STRIKE_2)) {
+                                await targetMember.roles.remove(STRIKE_2);
+                                geschrapteStrike = 'Strike 2 Verwijderd';
+                            } else if (targetMember.roles.cache.has(STRIKE_1)) {
+                                await targetMember.roles.remove(STRIKE_1);
+                                geschrapteStrike = 'Strike 1 Verwijderd';
+                            } else {
+                                return interaction.editReply({ content: '❌ Deze persoon heeft op dit moment geen actieve Strike 1 of Strike 2 rollen!' });
+                            }
+                        } catch (err) {
+                            return interaction.editReply({ content: '❌ Fout bij het intrekken van de strike rol. Controleer bot-permissies.' });
+                        }
+
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('🛡️ SANCTIE / WARN INGETROKKEN')
+                            .setColor('#00aaff')
+                            .addFields(
+                                { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
+                                { name: '📊 Actie', value: `\`${geschrapteStrike}\``, inline: true },
+                                { name: '📄 Reden van intrekking', value: reason, inline: false },
+                                { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
+                            ).setTimestamp();
+
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
+                        if (changelogsChannel) await changelogsChannel.send({ embeds: [logEmbed] });
+                        return interaction.editReply({ content: `✅ Sanctie succesvol ingetrokken (${geschrapteStrike}).` });
+                    }
+
+                    // Oude algemene warn/ontslag handler (indien nog in gebruik voor reguliere warns)
+                    if (interaction.customId.startsWith('warn_modal:')) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                        const targetUserId = interaction.customId.split(':')[1];
+                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                        if (!targetMember) return interaction.editReply({ content: '❌ Lid niet gevonden.' });
 
                         const warnType = interaction.fields.getTextInputValue('warn_type').toLowerCase();
                         const reason = interaction.fields.getTextInputValue('warn_reason');
                         const note = interaction.fields.getTextInputValue('warn_note') || 'Geen extra opmerkingen';
                         
-                        // JOUW INGEVULDE ROL ID'S
-                        const ROLE_IDS = {
-                            STRIKE_1: '1515778024333774959',
-                            STRIKE_2: '1515778110174531866',
-                            BLACKLIST: '1515778132710523021'
-                        };
-
-                        let title = '⚠️ STRATEGIE / SANCTIE UITGEVOERD';
+                        const ROLE_IDS = { STRIKE_1: '1515778024333774959', STRIKE_2: '1515778110174531866' };
+                        let title = '⚠️ SANCTIE UITGEVOERD';
                         let embedColor = '#ffaa00'; 
                         let actieMelding = 'Waarschuwing geregistreerd';
                         let isOntslag = false;
 
-                        // Rol logica op basis van wat je intypt in het formulier
                         try {
                             if (warnType.includes('strike 1')) {
                                 await targetMember.roles.add(ROLE_IDS.STRIKE_1);
-                                actieMelding = 'Rol `Strike 1` succesvol toegewezen.';
-                                embedColor = '#ffaa00';
-                            } 
-                            else if (warnType.includes('strike 2')) {
+                                actieMelding = 'Rol `Strike 1` toegewezen.';
+                            } else if (warnType.includes('strike 2')) {
                                 await targetMember.roles.add(ROLE_IDS.STRIKE_2);
-                                actieMelding = 'Rol `Strike 2` succesvol toegewezen.';
+                                actieMelding = 'Rol `Strike 2` toegewezen.';
                                 embedColor = '#ff5500';
-                            }
-                            else if (warnType.includes('intrek') || warnType.includes('verwijder')) {
-                                if (targetMember.roles.cache.has(ROLE_IDS.STRIKE_2)) {
-                                    await targetMember.roles.remove(ROLE_IDS.STRIKE_2);
-                                    actieMelding = '`Strike 2` ingetrokken / verwijderd.';
-                                } else if (targetMember.roles.cache.has(ROLE_IDS.STRIKE_1)) {
-                                    await targetMember.roles.remove(ROLE_IDS.STRIKE_1);
-                                    actieMelding = '`Strike 1` ingetrokken / verwijderd.';
-                                } else {
-                                    actieMelding = 'Geen actieve strikes gevonden om te verwijderen.';
-                                }
-                                embedColor = '#00aaff';
-                            }
-                            else if (warnType.includes('blacklist toevoeg') || warnType.includes('staff blacklist')) {
-                                await targetMember.roles.add(ROLE_IDS.BLACKLIST);
-                                actieMelding = 'Medewerker toegevoegd aan de `Staff Blacklist`.';
-                                embedColor = '#222222';
-                            }
-                            else if (warnType.includes('blacklist verwijder')) {
-                                await targetMember.roles.remove(ROLE_IDS.BLACKLIST);
-                                actieMelding = 'Medewerker verwijderd van de `Staff Blacklist`.';
-                                embedColor = '#00ff66';
-                            }
-                            else if (warnType.includes('ontslag') || warnType.includes('2e')) {
+                            } else if (warnType.includes('ontslag')) {
                                 title = '🚨 MEDEWERKER ONTSLAGEN';
                                 embedColor = '#ff0000';
                                 isOntslag = true;
-                                actieMelding = 'Medewerker ontslagen en alle staff-rollen gestript.';
+                                actieMelding = 'Medewerker ontslagen en staff-rollen gestript.';
                             }
                         } catch (err) {
-                            logger.error(`Fout bij het beheren van rollen: ${err.message}`);
-                            return interaction.editReply({ content: `❌ Fout bij het aanpassen van de rollen. Controleer of de bot-rol hoog genoeg in de server-lijst staat!` });
+                            return interaction.editReply({ content: `❌ Fout bij het aanpassen van de rollen.` });
                         }
 
                         const logEmbed = new EmbedBuilder()
@@ -475,37 +547,18 @@ export default {
                             .addFields(
                                 { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
                                 { name: '📊 Status / Actie', value: `\`${actieMelding}\``, inline: true },
-                                { name: '📅 Datum', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
-                                { name: '📄 Reden', value: `${reason}`, inline: false },
-                                { name: '💡 Extra Opmerking', value: `${note}`, inline: false },
+                                { name: '📄 Reden', value: reason, inline: false },
                                 { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
-                            )
-                            .setTimestamp();
+                            ).setTimestamp();
 
-                        // Als het een ontslag is, strips dan alle normale rollen
                         if (isOntslag) {
-                            const rolesToRemove = targetMember.roles.cache.filter(role => 
-                                role.id !== interaction.guild.id && 
-                                role.managed === false
-                            );
-                            
-                            if (rolesToRemove.size > 0) {
-                                await targetMember.roles.remove(rolesToRemove, 'Automatisch gestript wegens ontslag').catch(err => {
-                                    logger.error(`Kon rollen niet volledig strippen: ${err.message}`);
-                                });
-                                logEmbed.setDescription('⚠️ *Alle rollen van dit lid zijn automatisch ingetrokken.*');
-                            }
+                            const rolesToRemove = targetMember.roles.cache.filter(role => role.id !== interaction.guild.id && !role.managed);
+                            if (rolesToRemove.size > 0) await targetMember.roles.remove(rolesToRemove).catch(() => {});
                         }
 
-                        // HIER ZOEKEN WE SPECIFIEK EN ALLEEN NAAR #changelogs VOOR DE WARNS
                         const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs');
-                        
-                        if (!changelogsChannel) {
-                            return interaction.editReply({ content: `❌ Fout: Het logkanaal \`#changelogs\` kon niet gevonden worden!` });
-                        }
-
-                        await changelogsChannel.send({ embeds: [logEmbed] });
-                        return interaction.editReply({ content: `✅ Actie succesvol verwerkt in <#${changelogsChannel.id}>!` });
+                        if (changelogsChannel) await changelogsChannel.send({ embeds: [logEmbed] });
+                        return interaction.editReply({ content: `✅ Verwerkt in <#${changelogsChannel?.id}>.` });
                     }
 
                     // Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
@@ -516,7 +569,6 @@ export default {
                         const updateChanges = interaction.fields.getTextInputValue('update_changes');
                         const updateVersion = interaction.fields.getTextInputValue('update_version') || 'Regulier';
 
-                        // HIER ZOEKEN WE SPECIFIEK EN ALLEEN NAAR ┃⚙️・updates VOOR DE BOT UPDATES
                         const updatesChannel = interaction.guild.channels.cache.find(c => c.name === '┃⚙️・updates');
 
                         if (!updatesChannel) {
@@ -625,10 +677,6 @@ export default {
                     }  
 
                     if (interaction.customId.startsWith('jtc_')) {  
-                        logger.debug(`Skipping modal handler lookup for inline-awaited modal: ${interaction.customId}`, {  
-                          event: 'interaction.modal.inline_skipped',  
-                          traceId: interactionTraceContext.traceId  
-                        });  
                         return;  
                     }  
 
@@ -674,25 +722,14 @@ export default {
                         embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')],  
                         flags: MessageFlags.Ephemeral  
                     };  
-                    const editErrorMessage = {  
-                        embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')]  
-                    };  
-
                     if (interaction.deferred) {  
-                        await interaction.editReply(editErrorMessage);  
+                        await interaction.editReply({ embeds: [MessageTemplates.ERRORS.DATABASE_ERROR('processing your interaction')] });  
                     } else if (interaction.replied) {  
                         await interaction.followUp(ephemeralErrorMessage);  
                     } else {  
                         await interaction.reply(ephemeralErrorMessage);  
                     }  
-                } catch (replyError) {  
-                    logger.error('Failed to send fallback error response:', {  
-                        event: 'interaction.error_response_failed',  
-                        errorCode: 'INTERACTION_ERROR_RESPONSE_FAILED',  
-                        error: replyError,  
-                        traceId: interactionTraceContext.traceId  
-                    });  
-                }  
+                } catch (replyError) {}  
             }  
         });
     }
