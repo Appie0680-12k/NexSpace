@@ -9,6 +9,16 @@ const FINANCE_FEEDS = [
     'https://www.rtlnieuws.nl/rss/economie/index.xml'
 ];
 
+// --- 🎯 TREFWOORDEN FILTER VOOR BELANGRIJK NIEUWS ---
+const FILTER_KEYWORDS = [
+    // Breaking / Alarm
+    'breaking', 'spoed', 'alarm', 'cruciaal', 'code rood', 'grote ramp', 'aanslag', 'getroffen',
+    // Oorlog / Conflicten
+    'oorlog', 'conflict', 'invasie', 'raket', 'bombardement', 'leger', 'militaire', 'escalatie', 'front', 'oorlogsvoering',
+    // WK / Groot Sportnieuws
+    'wk', 'wereldkampioenschap', 'fifa', 'knvb', 'oranje', 'wk-ploeg', 'wk-selectie', 'kwalificatie', 'finale'
+];
+
 // Slimme lijstjes om verzonden artikelen in op te slaan
 const sentWorldArticles = new Set();
 const sentFinanceArticles = new Set();
@@ -51,7 +61,7 @@ async function fetchRssFeed(url) {
                 parsedItems.push({
                     title,
                     link,
-                    contentSnippet: description,
+                    contentSnippet: description || '',
                     guid,
                     pubDate
                 });
@@ -61,6 +71,12 @@ async function fetchRssFeed(url) {
     } catch (e) {
         return null;
     }
+}
+
+// Functie die checkt of een artikel voldoet aan onze belangrijke trefwoorden
+function isBelangrijkNieuws(title, description) {
+    const volledigeTekst = `${title.toLowerCase()} ${description.toLowerCase()}`;
+    return FILTER_KEYWORDS.some(keyword => volledigeTekst.includes(keyword));
 }
 
 export default {
@@ -73,14 +89,14 @@ export default {
         );
 
         // ==========================================================
-        // SYSTEEM 1: WERELDNIEUWS
+        // SYSTEEM 1: WERELDNIEUWS (GEFILTERD)
         // ==========================================================
         async function checkWorldNews() {
             try {
                 const feed = await fetchRssFeed(WORLD_NEWS_URL);
                 if (!feed || !feed.items || feed.items.length === 0) return;
 
-                const recentItems = feed.items.slice(0, 3);
+                const recentItems = feed.items.slice(0, 5); // Iets grotere hap nemen om gefilterd nieuws te spotten
 
                 for (const item of recentItems) {
                     const articleId = item.guid || item.link;
@@ -95,7 +111,11 @@ export default {
 
                         sentWorldArticles.add(articleId);
 
-                        // Veilige for...of loop in plaats van forEach
+                        // 🔥 Check of het artikel gaat over Breaking, Oorlog of het WK
+                        if (!isBelangrijkNieuws(item.title, item.contentSnippet)) {
+                            continue; // Sla dit artikel over als het geen belangrijk trefwoord bevat
+                        }
+
                         for (const [guildId, guild] of client.guilds.cache) {
                             try {
                                 const nieuwsChannel = guild.channels.cache.find(
@@ -104,13 +124,13 @@ export default {
                                 if (!nieuwsChannel) continue;
 
                                 const embed = new EmbedBuilder()
-                                    .setTitle(`🌐 ${item.title}`)
+                                    .setTitle(`🚨 ${item.title}`)
                                     .setURL(item.link)
                                     .setDescription(
                                         item.contentSnippet ||
                                         'Klik op de link om het artikel te lezen.'
                                     )
-                                    .setColor('#00fbff')
+                                    .setColor('#FF0000') // Rood voor urgent/belangrijk nieuws
                                     .setTimestamp(
                                         item.pubDate ? new Date(item.pubDate) : new Date()
                                     );
@@ -152,7 +172,6 @@ export default {
 
                             sentFinanceArticles.add(articleId);
 
-                            // Veilige for...of loop in plaats van forEach
                             for (const [guildId, guild] of client.guilds.cache) {
                                 try {
                                     const financeChannel = guild.channels.cache.find(
@@ -233,7 +252,6 @@ export default {
                 marketDescription += '• Apple: $189.30\n';
                 marketDescription += '• Tesla: $175.50\n';
 
-                // Veilige for...of loop in plaats van forEach
                 for (const [guildId, guild] of client.guilds.cache) {
                     try {
                         const marketChannel = guild.channels.cache.find(
@@ -269,7 +287,7 @@ export default {
             }
         }
 
-        // BIJ OPSTARTEN: Geef de bot/database 5 seconden de tijd om stabiel te verbinden
+        // BIJ OPSTARTEN
         setTimeout(() => {
             checkWorldNews();
             checkFinanceNews();
