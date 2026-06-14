@@ -1,50 +1,40 @@
-import { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
+import { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType } from 'discord.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('review')
-        .setDescription('Laat een beoordeling achter voor de MTS Shop!'),
+        .setDescription('Laat een beoordeling achter voor de MTS Shop of NexSpace Shop!'),
     
     async execute(interaction) {
-        const modal = new ModalBuilder()
-            .setCustomId('review_modal')
-            .setTitle('MTS Shop Review');
+        // Stap 1: Selectiemenu voor de Shop
+        const shopMenu = new StringSelectMenuBuilder()
+            .setCustomId('review_select_shop')
+            .setPlaceholder('Voor welke shop is de review?')
+            .addOptions([
+                { label: 'MTS Shop', value: 'mts', description: 'Review voor de MTS Shop', emoji: '🛒' },
+                { label: 'NexSpace Shop', value: 'nexspace', description: 'Review voor de NexSpace Shop', emoji: '🚀' }
+            ]);
 
-        const productInput = new TextInputBuilder()
-            .setCustomId('review_product')
-            .setLabel('Wat heb je gekocht?')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Bijv. Starter Pack, Munten, Custom Rol...')
-            .setRequired(true);
+        // Stap 2: Selectiemenu voor de Sterren (Klant klikt dit gewoon aan!)
+        const starsMenu = new StringSelectMenuBuilder()
+            .setCustomId('review_select_stars')
+            .setPlaceholder('Hoeveel sterren geef je ons?')
+            .addOptions([
+                { label: '⭐ (1/5)', value: '⭐', description: 'Slecht' },
+                { label: '⭐⭐ (2/5)', value: '⭐⭐', description: 'Matig' },
+                { label: '⭐⭐⭐ (3/5)', value: '⭐⭐⭐', description: 'Voldoende' },
+                { label: '⭐⭐⭐⭐ (4/5)', value: '⭐⭐⭐⭐', description: 'Goed!' },
+                { label: '⭐⭐⭐⭐⭐ (5/5)', value: '⭐⭐⭐⭐⭐', description: 'Uitstekend!' }
+            ]);
 
-        const priceInput = new TextInputBuilder()
-            .setCustomId('review_price')
-            .setLabel('Wat was de prijs?')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Bijv. €5,00 of 500 munten')
-            .setRequired(true);
+        const row1 = new ActionRowBuilder().addComponents(shopMenu);
+        const row2 = new ActionRowBuilder().addComponents(starsMenu);
 
-        const legitInput = new TextInputBuilder()
-            .setCustomId('review_legit')
-            .setLabel('Is de shop legitiem en eerlijk verlopen?')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Bijv. Ja, heel snel geholpen!')
-            .setRequired(true);
-
-        const starsInput = new TextInputBuilder()
-            .setCustomId('review_stars')
-            .setLabel('Hoeveel sterren geef je ons? (1-5)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Bijv. ⭐⭐⭐⭐⭐')
-            .setRequired(true);
-
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(productInput),
-            new ActionRowBuilder().addComponents(priceInput),
-            new ActionRowBuilder().addComponents(legitInput),
-            new ActionRowBuilder().addComponents(starsInput)
-        );
-
-        await interaction.showModal(modal);
+        // Stuur de menu's tijdelijk naar de gebruiker (alleen zichtbaar voor hem/haar)
+        await interaction.reply({
+            content: '✨ **MTS & NexSpace Review Systeem** ✨\nSelecteer hieronder de shop en je beoordeling om door te gaan:',
+            components: [row1, row2],
+            ephemeral: true
+        });
     }
 };
