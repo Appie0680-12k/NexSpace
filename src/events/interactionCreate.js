@@ -13,6 +13,26 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 // Tijdelijke cache om de shop- en sterrenselectie van gebruikers te onthouden
 const tempReviewCache = new Map();
 
+// Vragenlijsten voor de DM-sollicitaties
+const REGULIERE_VRAGEN = [
+    "Wat is je Naam?",
+    "Wat is je Motivatie?",
+    "Waarom kies je voor ons?",
+    "Wat wil jij toevoegen aan onze server?",
+    "Hoeveel partners kun je regelen per week?",
+    "Heb je nog overige vragen?"
+];
+
+const MANAGEMENT_VRAGEN = [
+    "Voor welke rol solliciteer je? (Toezicht manager of Administratief manager)",
+    "Wat is je Naam?",
+    "Wat is je Motivatie?",
+    "Waarom kies je voor ons?",
+    "Wat wil jij toevoegen aan onze server?",
+    "Hoeveel partners kun je regelen per week?",
+    "Heb je nog overige vragen?"
+];
+
 function withTraceContext(context = {}, traceContext = {}) {
     return {
         traceId: traceContext.traceId,
@@ -222,6 +242,116 @@ export default {
                         }  
                     }  
                 } else if (interaction.isButton()) {  
+
+                    // ==========================================
+                    //  SOLLICITATIE DM-GESPREK SYSTEM
+                    // ==========================================
+                    if (interaction.customId === 'start_apply_regulier' || interaction.customId === 'start_apply_management') {
+                        await interaction.reply({ content: '⏳ We sturen je nu een bericht in je DM om het sollicitatiegesprek te starten!', flags: [MessageFlags.Ephemeral] });
+
+                        const isManagement = interaction.customId === 'start_apply_management';
+                        const vragenlijst = isManagement ? MANAGEMENT_VRAGEN : REGULIERE_VRAGEN;
+                        const antwoorden = [];
+
+                        try {
+                            const dmChannel = await interaction.user.createDM();
+                            await dmChannel.send(`👋 Hallo! Leuk dat je wilt solliciteren bij ons als **${isManagement ? 'Manager' : 'Stafflid'}**.\nWe gaan nu beginnen met de vragen. Typ je antwoord rustig in deze chat.`);
+
+                            for (let i = 0; i < vragenlijst.length; i++) {
+                                await dmChannel.send(`**Vraag ${i + 1}/${vragenlijst.length}:** ${vragenlijst[i]}`);
+                                
+                                const filter = m => m.author.id === interaction.user.id;
+                                const collected = await dmChannel.awaitMessages({ filter, max: 1, time: 300000, errors: ['time'] }).catch(() => null);
+
+                                if (!collected) {
+                                    await dmChannel.send('❌ Je hebt te lang gewacht met antwoorden (maximaal 5 minuten per vraag). De sollicitatie is geannuleerd. Probeer het gerust opnieuw via de server.');
+                                    return;
+                                }
+
+                                antwoorden.push({ vraag: vragenlijst[i], antwoord: collected.first().content });
+                            }
+
+                            await dmChannel.send('✅ Bedankt! Je sollicitatie is succesvol afgerond en verzonden naar het management team. Je hoort zo snel mogelijk van ons!');
+
+                            const uitslagenChannel = interaction.guild.channels.cache.find(c => c.name === 'vacatures-uitslagen');
+                            if (!uitslagenChannel) {
+                                logger.error('Kanaal vacatures-uitslagen niet gevonden tijdens verzenden sollicitatie.');
+                                return;
+                            }
+
+                            const reviewEmbed = new EmbedBuilder()
+                                .setTitle(`📩 Nieuwe Sollicitatie: ${isManagement ? 'Management Functie' : 'Reguliere Staff'}`)
+                                .setColor('#00fbff')
+                                .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+                                .setFooter({ text: `Gebruiker ID: ${interaction.user.id}` })
+                                .setTimestamp();
+
+                            antwoorden.forEach(a => {
+                                reviewEmbed.addFields({ name: a.vraag, value: a.antwoord || 'Geen antwoord gegeven', inline: false });
+                            });
+
+                            reviewEmbed.addFields({ name: '👤 Ingediend door', value: `<@${interaction.user.id}> (${interaction.user.username})` });
+
+                            const beoordeelRij = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`app_accept:${interaction.user.id}`)
+                                    .setLabel('Goedkeuren')
+                                    .setStyle(ButtonStyle.Success),
+                                new ButtonBuilder()
+                                    .setCustomId(`app_deny:${interaction.user.id}`)
+                                    .setLabel('Afkeuren')
+                                    .setStyle(ButtonStyle.Danger)
+                            );
+
+                            await uitslagenChannel.send({ embeds: [reviewEmbed], components: [beoordeelRij] });
+
+                        } catch (err) {
+                            logger.error(`Kon DM van gebruiker niet openen voor sollicitatie: ${err.message}`);
+                            return interaction.followUp({ content: '❌ Het is niet gelukt om je een DM te sturen. Zorg ervoor dat je privéberichten (DMs) openstaan voor leden van deze server!', flags: [MessageFlags.Ephemeral] });
+                        }
+                        return;
+                    }
+
+                    // Beoordeling: GOEDKEUREN
+                    if (interaction.customId.startsWith('app_accept:')) {
+                        await interaction.deferUpdate();
+                        const targetUserId = interaction.customId.split(':')[1];
+                        const targetUser = await client.users.fetch(targetUserId).catch(() => null);
+
+                        if (targetUser) {
+                            await targetUser.send('🎉 **Gefeliciteerd!** Je sollicitatie is **goedgekeurd** door het management team.\n\nMaak alsjeblieft een ticket aan in de server voor de verdere afhandeling, extra informatie en om je rollen te claimen!').catch(() => null);
+                        }
+
+                        const oldEmbed = interaction.message.embeds[0];
+                        const updatedEmbed = EmbedBuilder.from(oldEmbed)
+                            .setColor('#00ff66')
+                            .setTitle(`${oldEmbed.title} - 🟢 GOEDGEKEURD`)
+                            .addFields({ name: '🛡️ Beoordeeld door', value: `<@${interaction.user.id}>` });
+
+                        await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+                        return;
+                    }
+
+                    // Beoordeling: AFKEUREN
+                    if (interaction.customId.startsWith('app_deny:')) {
+                        await interaction.deferUpdate();
+                        const targetUserId = interaction.customId.split(':')[1];
+                        const targetUser = await client.users.fetch(targetUserId).catch(() => null);
+
+                        if (targetUser) {
+                            await targetUser.send('🖤 Bedankt voor je interesse en de moeite die je hebt genomen om te solliciteren. Helaas moeten we je mededelen dat je deze keer **niet bent gekozen**.\n\nJammer, maar hopelijk tot een volgende ronde!').catch(() => null);
+                        }
+
+                        const oldEmbed = interaction.message.embeds[0];
+                        const updatedEmbed = EmbedBuilder.from(oldEmbed)
+                            .setColor('#ff0000')
+                            .setTitle(`${oldEmbed.title} - 🔴 AFGEKEURD`)
+                            .addFields({ name: '🛡️ Beoordeeld door', value: `<@${interaction.user.id}>` });
+
+                        await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+                        return;
+                    }
+
                     // Ticket logica met gecorrigeerde categorie-prioriteit
                     if (interaction.customId === 'open_purchase_ticket' || interaction.customId === 'create_ticket' || interaction.customId === 'open_ticket') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
