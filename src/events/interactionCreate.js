@@ -397,49 +397,93 @@ export default {
                         }, interactionTraceContext));  
                     }  
                 } else if (interaction.isModalSubmit()) {  
-                    // Afhandeling van het Warn / Ontslag formulier
+                    // Afhandeling van het Warn / Ontslag formulier (Inclusief Strike & Blacklist rollen)
                     if (interaction.customId.startsWith('warn_modal:')) {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                         
                         const targetUserId = interaction.customId.split(':')[1];
                         const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
                         
+                        if (!targetMember) {
+                            return interaction.editReply({ content: '❌ Fout: Gebruiker kon niet worden gevonden in deze server!' });
+                        }
+
                         const warnType = interaction.fields.getTextInputValue('warn_type').toLowerCase();
                         const reason = interaction.fields.getTextInputValue('warn_reason');
                         const note = interaction.fields.getTextInputValue('warn_note') || 'Geen extra opmerkingen';
                         
-                        const changelogsChannel = interaction.guild.channels.cache.find(c => c.name === 'changelogs' || c.name.includes('changelog'));
-                        
-                        if (!changelogsChannel) {
-                            return interaction.editReply({ content: '❌ Fout: Het kanaal `#changelogs` kon niet worden gevonden!' });
-                        }
+                        // JOUW INGEVULDE ROL ID'S
+                        const ROLE_IDS = {
+                            STRIKE_1: '1515778024333774959',
+                            STRIKE_2: '1515778110174531866',
+                            BLACKLIST: '1515778132710523021'
+                        };
 
-                        let title = '⚠️ OFFICIËLE WAARSCHUWING';
-                        let embedColor = '#ffaa00'; // Oranje voor waarschuwing
+                        let title = '⚠️ STRATEGIE / SANCTIE UITGEVOERD';
+                        let embedColor = '#ffaa00'; 
+                        let actieMelding = 'Waarschuwing geregistreerd';
                         let isOntslag = false;
 
-                        // Checken of het ontslag of 2e waarschuwing (ontslag) betreft
-                        if (warnType.includes('ontslag') || warnType.includes('2e')) {
-                            title = '🚨 MEDEWERKER ONTSLAGEN';
-                            embedColor = '#ff0000'; // Rood voor ontslag
-                            isOntslag = true;
+                        // Rol logica op basis van wat je intypt in het formulier
+                        try {
+                            if (warnType.includes('strike 1')) {
+                                await targetMember.roles.add(ROLE_IDS.STRIKE_1);
+                                actieMelding = 'Rol `Strike 1` succesvol toegewezen.';
+                                embedColor = '#ffaa00';
+                            } 
+                            else if (warnType.includes('strike 2')) {
+                                await targetMember.roles.add(ROLE_IDS.STRIKE_2);
+                                actieMelding = 'Rol `Strike 2` succesvol toegewezen.';
+                                embedColor = '#ff5500';
+                            }
+                            else if (warnType.includes('intrek') || warnType.includes('verwijder')) {
+                                if (targetMember.roles.cache.has(ROLE_IDS.STRIKE_2)) {
+                                    await targetMember.roles.remove(ROLE_IDS.STRIKE_2);
+                                    actieMelding = '`Strike 2` ingetrokken / verwijderd.';
+                                } else if (targetMember.roles.cache.has(ROLE_IDS.STRIKE_1)) {
+                                    await targetMember.roles.remove(ROLE_IDS.STRIKE_1);
+                                    actieMelding = '`Strike 1` ingetrokken / verwijderd.';
+                                } else {
+                                    actieMelding = 'Geen actieve strikes gevonden om te verwijderen.';
+                                }
+                                embedColor = '#00aaff';
+                            }
+                            else if (warnType.includes('blacklist toevoeg') || warnType.includes('staff blacklist')) {
+                                await targetMember.roles.add(ROLE_IDS.BLACKLIST);
+                                actieMelding = 'Medewerker toegevoegd aan de `Staff Blacklist`.';
+                                embedColor = '#222222';
+                            }
+                            else if (warnType.includes('blacklist verwijder')) {
+                                await targetMember.roles.remove(ROLE_IDS.BLACKLIST);
+                                actieMelding = 'Medewerker verwijderd van de `Staff Blacklist`.';
+                                embedColor = '#00ff66';
+                            }
+                            else if (warnType.includes('ontslag') || warnType.includes('2e')) {
+                                title = '🚨 MEDEWERKER ONTSLAGEN';
+                                embedColor = '#ff0000';
+                                isOntslag = true;
+                                actieMelding = 'Medewerker ontslagen en alle staff-rollen gestript.';
+                            }
+                        } catch (err) {
+                            logger.error(`Fout bij het beheren van rollen: ${err.message}`);
+                            return interaction.editReply({ content: `❌ Fout bij het aanpassen van de rollen. Controleer of de bot-rol hoog genoeg in de server-lijst staat!` });
                         }
 
                         const logEmbed = new EmbedBuilder()
                             .setTitle(title)
                             .setColor(embedColor)
                             .addFields(
-                                { name: '👤 Medewerker', value: targetMember ? `<@${targetMember.id}>` : `ID: ${targetUserId}`, inline: true },
-                                { name: '📊 Sanctie Niveau', value: `\`${warnType.toUpperCase()}\``, inline: true },
-                                { name: '📆 Datum', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
+                                { name: '👤 Medewerker', value: `<@${targetMember.id}>`, inline: true },
+                                { name: '📊 Status / Actie', value: `\`${actieMelding}\``, inline: true },
+                                { name: '📅 Datum', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
                                 { name: '📄 Reden', value: `${reason}`, inline: false },
-                                { name: '💡 Opmerking', value: `${note}`, inline: false },
-                                { name: '🛡️ Uitgeschreven Door', value: `<@${interaction.user.id}>`, inline: false }
+                                { name: '💡 Extra Opmerking', value: `${note}`, inline: false },
+                                { name: '🛡️ Uitgevoerd Door', value: `<@${interaction.user.id}>`, inline: false }
                             )
                             .setTimestamp();
 
-                        // Als het ontslag is, gaan we alle staff-rollen strippen
-                        if (isOntslag && targetMember) {
+                        // Als het een ontslag is, strips dan alle normale rollen
+                        if (isOntslag) {
                             const rolesToRemove = targetMember.roles.cache.filter(role => 
                                 role.id !== interaction.guild.id && 
                                 role.managed === false
@@ -453,11 +497,23 @@ export default {
                             }
                         }
 
+                        // Stuur naar het updates of changelogs kanaal
+                        const changelogsChannel = interaction.guild.channels.cache.find(c => 
+                            c.name === '┃⚙️・updates' || 
+                            c.name === 'updates' || 
+                            c.name === 'changelogs' ||
+                            c.name.includes('changelog')
+                        );
+                        
+                        if (!changelogsChannel) {
+                            return interaction.editReply({ content: `❌ Fout: Er kon geen geschikt logkanaal gevonden worden!` });
+                        }
+
                         await changelogsChannel.send({ embeds: [logEmbed] });
-                        return interaction.editReply({ content: `✅ Sanctie succesvol verwerkt en geplaatst in <#${changelogsChannel.id}>!` });
+                        return interaction.editReply({ content: `✅ Actie succesvol verwerkt! ${actieMelding}` });
                     }
 
-                    // NIEUW: Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
+                    // Afhandeling van de /update pop-up (Modal) gericht op ┃⚙️・updates
                     if (interaction.customId === 'update_modal') {
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -465,7 +521,6 @@ export default {
                         const updateChanges = interaction.fields.getTextInputValue('update_changes');
                         const updateVersion = interaction.fields.getTextInputValue('update_version') || 'Regulier';
 
-                        // Zoekt nu direct en specifiek naar jouw kanaal '┃⚙️・updates'
                         const changelogsChannel = interaction.guild.channels.cache.find(c => 
                             c.name === '┃⚙️・updates' || 
                             c.name === 'updates' || 
@@ -480,7 +535,7 @@ export default {
                         const updateEmbed = new EmbedBuilder()
                             .setTitle(`🚀 ${updateTitle.toUpperCase()}`)
                             .setDescription(`Hier is een overzicht van de nieuwste wijzigingen:`)
-                            .setColor('#00ffaa') // Fijne, frisse groen/blauwe kleur
+                            .setColor('#00ffaa') 
                             .addFields(
                                 { name: '🛠️ Wijzigingen', value: `${updateChanges}`, inline: false },
                                 { name: '📌 Type / Versie', value: `\`${updateVersion}\``, inline: true },
