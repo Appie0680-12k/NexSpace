@@ -3,6 +3,7 @@ import {
   Client,
   Collection,
   GatewayIntentBits,
+  Partials,
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -51,6 +52,11 @@ class TitanBot extends Client {
         GatewayIntentBits.GuildInvites,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages, // Zorgt dat de bot DM's kan ontvangen
+      ],
+      partials: [
+        Partials.Channel, // Zorgt dat messageCreate afvuurt in DM kanalen
+        Partials.Message,
       ],
     });
 
