@@ -164,10 +164,12 @@ class TitanBot extends Client {
           '⚡ Slash commands registreren...'
         );
 
-        await registerSlashCommands(this);
+        // Geforceerde directe registratie op jouw specifieke NexSpace server
+        const targetGuildId = '1475577072381460521';
+        await registerSlashCommands(this, targetGuildId);
 
         console.log(
-          '✅ Slash commands geregistreerd.'
+          `✅ Slash commands succesvol geregistreerd voor server: ${targetGuildId}`
         );
       } catch (registerError) {
         console.error(
