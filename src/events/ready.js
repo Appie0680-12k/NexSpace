@@ -1,4 +1,4 @@
-import { Events, EmbedBuilder } from 'discord.js';
+import { Events, EmbedBuilder, ActivityType } from 'discord.js';
 
 // De nieuwsbronnen op de achtergrond
 const WORLD_NEWS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen';
