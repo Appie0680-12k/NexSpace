@@ -18,7 +18,7 @@ export default {
                 `• Support voor leden\n\n` +
                 `**Wat zoeken wij?**\n` +
                 `- Actieve partner medewerkers\n` +
-                `*Dit wordt betaald met 1,- per partner!*\n\n` +
+                `*Dit wordt betaald met €0,50 per partner!*\n\n` +
                 `Ons doel is om een georganiseerde en actieve community op te bouwen waar leden kunnen gamen, deelnemen aan events en met elkaar in contact kunnen komen.\n\n` +
                 `**Interesse?** Join de server via de link hieronder:\n` +
                 `https://discord.gg/nexspacecommunity`)
