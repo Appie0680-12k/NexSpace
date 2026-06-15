@@ -1,7 +1,7 @@
-import { EmbedBuilder, Events, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
+import { EmbedBuilder, Events, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import pg from 'pg';
 
-// Database pool configuratie (Geoptimaliseerd tegen crashes en memory leaks)
+// Database pool configuratie (Geoptimaliseerd tegen crashes)
 const pool = new pg.Pool({ 
     connectionString: process.env.DATABASE_URL, 
     ssl: { rejectUnauthorized: false },
@@ -94,121 +94,120 @@ async function updateLeaderboard(guild) {
     }
 }
 
-// We exporteren nu een array met twee aparte event-luisteraars zodat alles vlekkeloos blijft werken
-export default [
-    // --- EVENT 1: BERICHTEN EN COMMANDO'S ---
-    {
-        name: Events.MessageCreate,
-        async execute(message) {
-            if (message.author.bot || !message.guild) return;
+// Functie die alle tekstberichten en commando's verwerkt (losgekoppeld van de export)
+async function handleMessageCreate(message) {
+    if (message.author.bot || !message.guild) return;
 
-            // 1. AUTO-UPDATE BIJ NIEUWE LINK
-            if (message.channel.name === '┃🤝🏻・partners' && message.content.includes('http')) {
-                try {
-                    await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
-                    await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
-                    await message.react('💎').catch(() => null);
-                    
-                    await updateLeaderboard(message.guild);
-                } catch (e) { console.error(e); }
+    // 1. AUTO-UPDATE BIJ NIEUWE LINK
+    if (message.channel.name === '┃🤝🏻・partners' && message.content.includes('http')) {
+        try {
+            await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
+            await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
+            await message.react('💎').catch(() => null);
+            await updateLeaderboard(message.guild);
+        } catch (e) { console.error(e); }
+    }
+
+    // 2. HANDMATIGE UPDATE (!partners)
+    if (message.content.toLowerCase() === '!partners') {
+        await updateLeaderboard(message.guild);
+        if (message.channel.name !== 'partner-log') {
+            await message.reply('✅ Het leaderboard in #partner-log is handmatig bijgewerkt!');
+        }
+    }
+
+    // 3. SYNC COMMANDO
+    if (message.content === '/partner-sync') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+        const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
+        if (!partnerChannel) return message.reply('❌ Kan het partnerkanaal niet vinden.');
+
+        const statusMsg = await message.reply('⚙️ Bezig met scannen van de laatste 100 berichten...');
+        await pool.query('UPDATE partners SET count = 0');
+
+        const messages = await partnerChannel.messages.fetch({ limit: 100 });
+        for (const msg of messages.values()) {
+            if (msg.content.includes('http') && !msg.author.bot) {
+                await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
             }
+        }
+        await updateLeaderboard(message.guild);
+        return statusMsg.edit('✅ Volledige sync voltooid en leaderboard ververst!');
+    }
 
-            // 2. HANDMATIGE UPDATE (!partners)
-            if (message.content.toLowerCase() === '!partners') {
-                await updateLeaderboard(message.guild);
-                if (message.channel.name !== 'partner-log') {
-                    await message.reply('✅ Het leaderboard in #partner-log is handmatig bijgewerkt!');
-                }
-            }
+    // 4. EENMALIG DATUM-FILTER Commando (!04-06-2026)
+    if (message.content === '!04-06-2026') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return message.reply('❌ Alleen Admins mogen dit filter commando uitvoeren.');
+        }
 
-            // 3. SYNC COMMANDO
-            if (message.content === '/partner-sync') {
-                if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-                const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
-                if (!partnerChannel) return message.reply('❌ Kan het partnerkanaal niet vinden.');
+        const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
+        if (!partnerChannel) return message.reply('❌ Partnerkanaal niet gevonden.');
 
-                const statusMsg = await message.reply('⚙️ Bezig met scannen van de laatste 100 berichten...');
-                await pool.query('UPDATE partners SET count = 0');
+        const statusMsg = await message.reply('⏳ Bezig met filteren... Alle data vóór **04-06-2026** wordt verwijderd.');
 
-                const messages = await partnerChannel.messages.fetch({ limit: 100 });
-                for (const msg of messages.values()) {
-                    if (msg.content.includes('http') && !msg.author.bot) {
+        try {
+            await pool.query('UPDATE partners SET count = 0');
+            const filterDate = new Date('2026-06-04T00:00:00Z').getTime();
+
+            const messages = await partnerChannel.messages.fetch({ limit: 100 });
+            let verwijderdUitKanaal = 0;
+
+            for (const msg of messages.values()) {
+                if (msg.author.bot) continue;
+
+                if (msg.createdAt.getTime() < filterDate) {
+                    try {
+                        await msg.delete();
+                        verwijderdUitKanaal++;
+                    } catch (err) { console.error('Kon bericht niet deleten:', err.message); }
+                } else {
+                    if (msg.content.includes('http')) {
                         await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
                     }
                 }
-                await updateLeaderboard(message.guild);
-                return statusMsg.edit('✅ Volledige sync voltooid en leaderboard ververst!');
             }
 
-            // 4. EENMALIG DATUM-FILTER Commando (!04-06-2026)
-            if (message.content === '!04-06-2026') {
-                if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                    return message.reply('❌ Alleen Admins mogen dit filter commando uitvoeren.');
-                }
-
-                const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
-                if (!partnerChannel) return message.reply('❌ Partnerkanaal niet gevonden.');
-
-                const statusMsg = await message.reply('⏳ Bezig met filteren... Alle data vóór **04-06-2026** wordt verwijderd.');
-
-                try {
-                    await pool.query('UPDATE partners SET count = 0');
-                    const filterDate = new Date('2026-06-04T00:00:00Z').getTime();
-
-                    const messages = await partnerChannel.messages.fetch({ limit: 100 });
-                    let verwijderdUitKanaal = 0;
-
-                    for (const msg of messages.values()) {
-                        if (msg.author.bot) continue;
-
-                        if (msg.createdAt.getTime() < filterDate) {
-                            try {
-                                await msg.delete();
-                                verwijderdUitKanaal++;
-                            } catch (err) { console.error('Kon bericht niet deleten:', err.message); }
-                        } else {
-                            if (msg.content.includes('http')) {
-                                await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
-                            }
-                        }
-                    }
-
-                    await updateLeaderboard(message.guild);
-                    await statusMsg.edit(`✅ **Filter succesvol toegepast!**\n• Berichten van vóór 04-06-2026 zijn uit Discord opgeschoond (${verwijderdUitKanaal} stuks).\n• Het leaderboard telt nu alleen de partners vanaf 4 juni 2026.`);
-                } catch (err) {
-                    console.error(err);
-                    await statusMsg.edit('❌ Er ging iets mis tijdens het filteren.');
-                }
-            }
+            await updateLeaderboard(message.guild);
+            await statusMsg.edit(`✅ **Filter succesvol toegepast!**\n• Berichten van vóór 04-06-2026 zijn uit Discord opgeschoond (${verwijderdUitKanaal} stuks).\n• Het leaderboard telt nu alleen de partners vanaf 4 juni 2026.`);
+        } catch (err) {
+            console.error(err);
+            await statusMsg.edit('❌ Er ging iets mis tijdens het filteren.');
         }
-    },
+    }
+}
 
-    // --- EVENT 2: METEOR-RESISTANT INTERACTION HANDLER (VOOR DE KNOPPEN) ---
-    {
-        name: Events.InteractionCreate,
-        async execute(interaction) {
-            // Zorg dat we alleen knoppen opvangen
-            if (!interaction.isButton()) return;
+// --- HOOFD EXPORT (Gebaseerd op InteractionCreate) ---
+export default {
+    name: Events.InteractionCreate,
+    async execute(interaction, client) {
+        // Truc om ook MessageCreate events op te vangen binnen deze ene file!
+        if (!interaction.isButton()) {
+            // Als de bot een event doorstuurt dat geen interactie is, sturen we het door naar de berichten-handler
+            if (interaction.content !== undefined) {
+                return await handleMessageCreate(interaction);
+            }
+            return;
+        }
 
-            // Filter specifiek op onze partner knoppen
-            if (interaction.customId === 'partner_refresh' || interaction.customId === 'partner_reset') {
-                
-                // Controleer administrator rechten
-                if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                    return interaction.reply({ content: '❌ Alleen Administrators mogen dit leaderboard beheren.', ephemeral: true });
-                }
+        // Filter op onze specifieke knoppen
+        if (interaction.customId === 'partner_refresh' || interaction.customId === 'partner_reset') {
+            
+            // Administrator check
+            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return interaction.reply({ content: '❌ Alleen Administrators mogen dit leaderboard beheren.', ephemeral: true });
+            }
 
-                if (interaction.customId === 'partner_refresh') {
-                    await interaction.deferUpdate(); // Bevestig de interactie direct naar Discord om mislukkingsmeldingen te voorkomen
-                    await updateLeaderboard(interaction.guild);
-                }
+            if (interaction.customId === 'partner_refresh') {
+                await interaction.deferUpdate().catch(() => null); 
+                await updateLeaderboard(interaction.guild);
+            }
 
-                if (interaction.customId === 'partner_reset') {
-                    await pool.query('UPDATE partners SET count = 0');
-                    await interaction.reply({ content: '🗑️ Het partner leaderboard is volledig gereset naar 0!', ephemeral: true });
-                    await updateLeaderboard(interaction.guild);
-                }
+            if (interaction.customId === 'partner_reset') {
+                await pool.query('UPDATE partners SET count = 0');
+                await interaction.reply({ content: '🗑️ Het partner leaderboard is volledig gereset naar 0!', ephemeral: true });
+                await updateLeaderboard(interaction.guild);
             }
         }
     }
-];
+};
