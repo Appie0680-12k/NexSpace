@@ -1,13 +1,17 @@
 import { EmbedBuilder, Events, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
 import pg from 'pg';
 
+// Database pool configuratie (Geoptimaliseerd tegen crashes en memory leaks)
 const pool = new pg.Pool({ 
     connectionString: process.env.DATABASE_URL, 
-    ssl: { rejectUnauthorized: false } 
+    ssl: { rejectUnauthorized: false },
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
 });
 
 pool.on('error', (err) => {
-    console.error('Unexpected database error:', err);
+    console.error('⚠️ [PARTNER DB POOL ERROR]:', err.message);
 });
 
 // Functie om het leaderboard te genereren en te updaten
@@ -23,9 +27,11 @@ async function updateLeaderboard(guild) {
         const totalPartnersRes = await pool.query('SELECT SUM(count) as total FROM partners');
         const totalTopPartnersRes = await pool.query('SELECT COUNT(user_id) as total_users FROM partners WHERE count > 0');
         
-        const totalPartners = totalPartnersRes.rows[0].total || 0;
-        const totalUsers = totalTopPartnersRes.rows[0].total_users || 0;
-        const serverOmzet = totalPartners; 
+        const totalPartners = parseInt(totalPartnersRes.rows[0].total) || 0;
+        const totalUsers = parseInt(totalTopPartnersRes.rows[0].total_users) || 0;
+        
+        // --- PRIJSVERLAGING LOGICA: €0,50 per partner ---
+        const serverOmzet = (totalPartners * 0.50).toFixed(2); 
 
         const embed = new EmbedBuilder()
             .setTitle('💎 NexSpace Elite Partners')
@@ -41,14 +47,16 @@ async function updateLeaderboard(guild) {
             const medals = ['👑', '🥈', '🥉'];
             res.rows.forEach((row, i) => {
                 const medal = medals[i] || '🔹';
-                list += `${medal} **Rank #${i + 1}** • <@${row.user_id}>\n┗ 📊 \`${row.count}x\` partners gekoppeld • ( Waarde: \`€${row.count},-\` )\n\n`;
+                // Berekening per partner (€0.50) netjes geformatteerd met een komma
+                const individueleWaarde = (row.count * 0.50).toFixed(2).replace('.', ',');
+                list += `${medal} **Rank #${i + 1}** • <@${row.user_id}>\n┗ 📊 \`${row.count}x\` partners gekoppeld • ( Waarde: \`€${individueleWaarde}\` )\n\n`;
             });
         }
 
         embed.addFields(
             { name: '📈 Totaal Behaald', value: `\`\`\`🏆 ${totalPartners} Partners\`\`\``, inline: true },
             { name: '👥 Actieve Elite Partners', value: `\`\`\`🤝 ${totalUsers} Leden\`\`\``, inline: true },
-            { name: '💰 Totale Waarde', value: `\`\`\`💶 €${serverOmzet}.00\`\`\``, inline: true },
+            { name: '💰 Totale Waarde', value: `\`\`\`💶 €${serverOmzet.replace('.', ',')}\`\`\``, inline: true },
             { name: '🏆 Top 10 Ranglijst', value: list }
         );
 
@@ -82,8 +90,7 @@ async function updateLeaderboard(guild) {
             await pool.query('INSERT INTO partner_config (id, last_msg_id) VALUES (1, $1)', [leaderboardMsg.id]);
         }
 
-        // --- DE VERBETERDE KNOPPEN LOGICA ---
-        // We luisteren nu direct op het geplaatste bericht naar de knoppen!
+        // --- INTERACTIE LOGICA ---
         const collector = leaderboardMsg.createMessageComponentCollector({ componentType: ComponentType.Button });
 
         collector.on('collect', async (interaction) => {
@@ -93,7 +100,7 @@ async function updateLeaderboard(guild) {
 
             if (interaction.customId === 'partner_refresh') {
                 await interaction.deferUpdate();
-                collector.stop(); // Stop de huidige om duplicaten te voorkomen
+                collector.stop(); 
                 await updateLeaderboard(interaction.guild);
             }
 
@@ -120,7 +127,7 @@ export default {
             try {
                 await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
                 await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
-                await message.react('💎');
+                await message.react('💎').catch(() => null);
                 
                 await updateLeaderboard(message.guild);
             } catch (e) { console.error(e); }
