@@ -1,11 +1,26 @@
 import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
 import pg from 'pg';
 
-// Database verbinding (Zorg dat je DATABASE_URL op Railway goed staat!)
-const pool = new pg.Pool({ 
-    connectionString: process.env.DATABASE_URL, 
-    ssl: { rejectUnauthorized: false } 
-});
+// We maken de pool één keer buiten de handler aan
+let pool;
+
+function getDatabasePool() {
+    if (!pool) {
+        pool = new pg.Pool({ 
+            connectionString: process.env.DATABASE_URL, 
+            ssl: { rejectUnauthorized: false },
+            max: 10, // Maximaal 10 gelijktijdige verbindingen hergebruiken (voorkomt overbelasting)
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 2000
+        });
+
+        // Vang onverwachte database-fouten op zonder dat de hele Discord bot crasht
+        pool.on('error', (err) => {
+            console.error('⚠️ [DATABASE-POOL FOUT]: Verbinding onverwacht verbroken.', err.message);
+        });
+    }
+    return pool;
+}
 
 // --- DE ROLLEN CONFIGURATIE ---
 const levelRoleMap = {
@@ -21,42 +36,44 @@ const levelRoleMap = {
 export default {
     name: Events.MessageCreate,
     async execute(message) {
-        // CRUCIAAL: Als het bericht in DM is (geen guild), direct stoppen! 
-        // Dit voorkomt dat het levelsysteem crasht tijdens sollicitatiegesprekken.
+        // Stop als het een bot is of als het bericht in een DM (sollicitatie) is
         if (message.author.bot || !message.guild) return;
+
+        const db = getDatabasePool();
 
         // --- 1. ADMIN COMMANDO VOOR VOLLEDIGE RESET ---
         if (message.content.startsWith('/level-reset-all')) {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
             try {
-                await pool.query('DROP TABLE IF EXISTS premium_levels');
-                await pool.query('CREATE TABLE premium_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
+                await db.query('DROP TABLE IF EXISTS premium_levels');
+                await db.query('CREATE TABLE IF NOT EXISTS premium_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
                 return message.reply('🧹 **Level Systeem:** Alle speler-data is gereset naar Level 0.');
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error('Reset error:', e.message); 
+            }
         }
 
         // --- 2. HET NIVEAU SYSTEEM LOGICA ---
-        
-        // Alleen tellen in normale tekst-kanalen, niet bij commando's
         if (message.content.startsWith('!') || message.content.startsWith('/')) return;
 
-        // Tel de woorden. Een bericht moet minimaal 2 woorden hebben om te tellen.
+        // Bereken woorden
         const words = message.content.trim().split(/\s+/).length;
         if (words < 2) return;
 
         try {
-            // Maak de tabel aan als deze nog niet bestaat
-            await pool.query('CREATE TABLE IF NOT EXISTS premium_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
+            // Controleer of de verbinding stabiel is voor we een query schieten
+            await db.query('CREATE TABLE IF NOT EXISTS premium_levels (user_id TEXT PRIMARY KEY, words INTEGER DEFAULT 0)');
             
             // Update de woorden voor de gebruiker
-            const res = await pool.query(
+            const res = await db.query(
                 'INSERT INTO premium_levels (user_id, words) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET words = premium_levels.words + $2 RETURNING words', 
                 [message.author.id, words]
             );
             
+            if (!res.rows[0]) return;
             const currentWords = res.rows[0].words;
             
-            // Berekening: 500 woorden per level (verander de 500 hieronder als je minder woorden wilt)
+            // Configuratie: Aantal woorden per level
             const wordsPerLevel = 500; 
             const newLevel = Math.floor(currentWords / wordsPerLevel); 
             const oldLevel = Math.floor((currentWords - words) / wordsPerLevel);
@@ -64,8 +81,7 @@ export default {
             // Als de gebruiker een level omhoog is gegaan
             if (newLevel > oldLevel && newLevel > 0) {
                 
-                // --- A. MOOIE LOG IN #LEVEL-UP ---
-                // We zoeken specifiek in de server waar het bericht geplaatst is
+                // Zoek het level-up kanaal
                 const logChannel = message.guild.channels.cache.find(c => c.name === 'level-up' || c.name === '┃⭐・level-up');
                 
                 if (logChannel) {
@@ -83,7 +99,7 @@ export default {
                     await logChannel.send({ embeds: [embed] }).catch(() => null);
                 }
 
-                // --- B. ROL GEVEN (ALLEEN DE SPECIFIEKE NIVEAUS) ---
+                // Rol toewijzen
                 const roleIdToGive = levelRoleMap[newLevel];
                 if (roleIdToGive) {
                     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
@@ -92,20 +108,18 @@ export default {
                             const role = message.guild.roles.cache.get(roleIdToGive);
                             if (role) {
                                 await member.roles.add(role);
-                                
-                                // Extra logje dat de rol is gegeven
                                 if (logChannel) {
                                     await logChannel.send(`🛡️ **Rollen Update:** ${message.author} heeft de rol **${role.name}** ontvangen.`).catch(() => null);
                                 }
                             }
                         } catch (e) {
-                            console.error(`Fout bij het geven van rol voor Level ${newLevel}:`, e);
+                            console.error(`Fout bij het geven van rol voor Level ${newLevel}:`, e.message);
                         }
                     }
                 }
             }
         } catch (e) {
-            console.error('Level Systeem Error:', e);
+            console.error('⚠️ [LEVEL SYSTEEM NEGEERT EVENT]: Database was bezet of offline. Bericht overgeslagen om crash te voorkomen.');
         }
     }
 };
