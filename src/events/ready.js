@@ -87,6 +87,15 @@ export default {
         console.log(
             `🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js!`
         );
+        client.user.setPresence({
+    activities: [
+        {
+            name: 'Gemaakt door Appie0680',
+            type: ActivityType.Listening
+        }
+    ],
+    status: 'online'
+});
 
         // ==========================================================
         // SYSTEEM 1: WERELDNIEUWS (GEFILTERD)
