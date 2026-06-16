@@ -1,34 +1,50 @@
-import { EmbedBuilder, Events, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
 import pg from 'pg';
 
-// Database pool configuratie (Geoptimaliseerd tegen crashes)
+// Database pool configuratie (Geoptimaliseerd met automatische client-release tegen crashes)
 const pool = new pg.Pool({ 
     connectionString: process.env.DATABASE_URL, 
     ssl: { rejectUnauthorized: false },
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 5000
 });
 
 pool.on('error', (err) => {
     console.error('⚠️ [PARTNER DB POOL ERROR]:', err.message);
 });
 
+// Veilige database query helper om database-hangen op Railway te voorkomen
+async function safeQuery(queryText, params = []) {
+    let client;
+    try {
+        client = await pool.connect();
+        return await client.query(queryText, params);
+    } catch (err) {
+        console.error('❌ [DATABASE QUERY FAILED]:', err.message);
+        return null;
+    } finally {
+        if (client) client.release();
+    }
+}
+
 // Functie om het leaderboard te genereren en te updaten
 async function updateLeaderboard(guild) {
     try {
-        await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
-        await pool.query('CREATE TABLE IF NOT EXISTS partner_config (id INTEGER PRIMARY KEY, last_msg_id TEXT)');
+        await safeQuery('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
+        await safeQuery('CREATE TABLE IF NOT EXISTS partner_config (id INTEGER PRIMARY KEY, last_msg_id TEXT)');
 
-        const res = await pool.query('SELECT user_id, count FROM partners WHERE count > 0 ORDER BY count DESC LIMIT 10');
-        const logChannel = guild.channels.cache.find(c => c.name === 'partner-log');
-        if (!logChannel) return;
-
-        const totalPartnersRes = await pool.query('SELECT SUM(count) as total FROM partners');
-        const totalTopPartnersRes = await pool.query('SELECT COUNT(user_id) as total_users FROM partners WHERE count > 0');
+        const res = await safeQuery('SELECT user_id, count FROM partners WHERE count > 0 ORDER BY count DESC LIMIT 10');
         
-        const totalPartners = parseInt(totalPartnersRes.rows[0].total) || 0;
-        const totalUsers = parseInt(totalTopPartnersRes.rows[0].total_users) || 0;
+        // Zoek het logkanaal op basis van de naam 'partner-log'
+        const logChannel = guild.channels.cache.find(c => c.name === 'partner-log');
+        if (!logChannel || !res) return;
+
+        const totalPartnersRes = await safeQuery('SELECT SUM(count) as total FROM partners');
+        const totalTopPartnersRes = await safeQuery('SELECT COUNT(user_id) as total_users FROM partners WHERE count > 0');
+        
+        const totalPartners = totalPartnersRes?.rows[0]?.total ? parseInt(totalPartnersRes.rows[0].total) : 0;
+        const totalUsers = totalTopPartnersRes?.rows[0]?.total_users ? parseInt(totalTopPartnersRes.rows[0].total_users) : 0;
         
         // --- PRIJSVERLAGING LOGICA: €0,50 per partner ---
         const serverOmzet = (totalPartners * 0.50).toFixed(2); 
@@ -38,7 +54,7 @@ async function updateLeaderboard(guild) {
             .setColor('#00fbff')
             .setThumbnail(guild.iconURL({ dynamic: true }))
             .setTimestamp()
-            .setFooter({ text: 'NexSpace Automation • Automatische Update', iconURL: guild.iconURL() });
+            .setFooter({ text: 'NexSpace Automation • Updates via !partners', iconURL: guild.iconURL() });
 
         let list = "";
         if (res.rows.length === 0) {
@@ -59,34 +75,21 @@ async function updateLeaderboard(guild) {
             { name: '🏆 Top 10 Ranglijst', value: list }
         );
 
-        const row = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId('partner_refresh')
-                    .setLabel('Verversen')
-                    .setEmoji('🔄')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId('partner_reset')
-                    .setLabel('Reset Leaderboard')
-                    .setEmoji('🗑️')
-                    .setStyle(ButtonStyle.Danger)
-            );
-
-        const configRes = await pool.query('SELECT last_msg_id FROM partner_config WHERE id = 1');
+        const configRes = await safeQuery('SELECT last_msg_id FROM partner_config WHERE id = 1');
         let leaderboardMsg;
 
-        if (configRes.rows.length > 0) {
+        // Geen knoppen (components) meer meesturen om conflicten met sollicitaties te vermijden
+        if (configRes && configRes.rows.length > 0) {
             try {
                 leaderboardMsg = await logChannel.messages.fetch(configRes.rows[0].last_msg_id);
-                await leaderboardMsg.edit({ embeds: [embed], components: [row] });
+                await leaderboardMsg.edit({ embeds: [embed], components: [] });
             } catch (err) {
-                leaderboardMsg = await logChannel.send({ embeds: [embed], components: [row] });
-                await pool.query('UPDATE partner_config SET last_msg_id = $1 WHERE id = 1', [leaderboardMsg.id]);
+                leaderboardMsg = await logChannel.send({ embeds: [embed], components: [] });
+                await safeQuery('UPDATE partner_config SET last_msg_id = $1 WHERE id = 1', [leaderboardMsg.id]);
             }
         } else {
-            leaderboardMsg = await logChannel.send({ embeds: [embed], components: [row] });
-            await pool.query('INSERT INTO partner_config (id, last_msg_id) VALUES (1, $1)', [leaderboardMsg.id]);
+            leaderboardMsg = await logChannel.send({ embeds: [embed], components: [] });
+            await safeQuery('INSERT INTO partner_config (id, last_msg_id) VALUES (1, $1)', [leaderboardMsg.id]);
         }
 
     } catch (e) {
@@ -94,60 +97,63 @@ async function updateLeaderboard(guild) {
     }
 }
 
-// Functie die alle tekstberichten en commando's verwerkt (losgekoppeld van de export)
-async function handleMessageCreate(message) {
-    if (message.author.bot || !message.guild) return;
+// --- ZUIVERE MESSAGE_CREATE EXPORT ---
+export default {
+    name: Events.MessageCreate,
+    async execute(message) {
+        if (message.author.bot || !message.guild) return;
 
-    // 1. AUTO-UPDATE BIJ NIEUWE LINK
-    if (message.channel.name === '┃🤝🏻・partners' && message.content.includes('http')) {
-        try {
-            await pool.query('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
-            await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
+        // Dynamische kanaalcheck: herkent elk kanaal waar het woord 'partner' in staat (behalve de log)
+        const isPartnerChannel = message.channel.name.toLowerCase().includes('partner') && message.channel.name !== 'partner-log';
+
+        // 1. AUTO-UPDATE BIJ NIEUWE LINK IN PARTNERKANAAL
+        if (isPartnerChannel && message.content.includes('http')) {
+            await safeQuery('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
+            await safeQuery('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
             await message.react('💎').catch(() => null);
             await updateLeaderboard(message.guild);
-        } catch (e) { console.error(e); }
-    }
-
-    // 2. HANDMATIGE UPDATE (!partners)
-    if (message.content.toLowerCase() === '!partners') {
-        await updateLeaderboard(message.guild);
-        if (message.channel.name !== 'partner-log') {
-            await message.reply('✅ Het leaderboard in #partner-log is handmatig bijgewerkt!');
         }
-    }
 
-    // 3. SYNC COMMANDO
-    if (message.content === '/partner-sync') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-        const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
-        if (!partnerChannel) return message.reply('❌ Kan het partnerkanaal niet vinden.');
-
-        const statusMsg = await message.reply('⚙️ Bezig met scannen van de laatste 100 berichten...');
-        await pool.query('UPDATE partners SET count = 0');
-
-        const messages = await partnerChannel.messages.fetch({ limit: 100 });
-        for (const msg of messages.values()) {
-            if (msg.content.includes('http') && !msg.author.bot) {
-                await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
+        // 2. HANDMATIGE UPDATE / VERVERSEN VIA CHAT (!partners)
+        if (message.content.toLowerCase() === '!partners') {
+            await updateLeaderboard(message.guild);
+            if (message.channel.name !== 'partner-log') {
+                await message.reply('✅ Het leaderboard in #partner-log is succesvol bijgewerkt op basis van €0,50 per partner!');
             }
         }
-        await updateLeaderboard(message.guild);
-        return statusMsg.edit('✅ Volledige sync voltooid en leaderboard ververst!');
-    }
 
-    // 4. EENMALIG DATUM-FILTER Commando (!04-06-2026)
-    if (message.content === '!04-06-2026') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-            return message.reply('❌ Alleen Admins mogen dit filter commando uitvoeren.');
+        // 3. SYNC COMMANDO VIA CHAT (/partner-sync)
+        if (message.content === '/partner-sync') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
+            
+            const partnerChannel = message.guild.channels.cache.find(c => c.name.toLowerCase().includes('partner') && c.name !== 'partner-log');
+            if (!partnerChannel) return message.reply('❌ Kan het partnerkanaal niet vinden.');
+
+            const statusMsg = await message.reply('⚙️ Bezig met scannen van de berichten uit het partnerkanaal...');
+            await safeQuery('UPDATE partners SET count = 0');
+
+            const messages = await partnerChannel.messages.fetch({ limit: 100 });
+            for (const msg of messages.values()) {
+                if (msg.content.includes('http') && !msg.author.bot) {
+                    await safeQuery('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
+                }
+            }
+            await updateLeaderboard(message.guild);
+            return statusMsg.edit('✅ Volledige kanaal-sync voltooid en leaderboard live bijgewerkt!');
         }
 
-        const partnerChannel = message.guild.channels.cache.find(c => c.name === '┃🤝🏻・partners');
-        if (!partnerChannel) return message.reply('❌ Partnerkanaal niet gevonden.');
+        // 4. DATUM-FILTER Commando (!04-06-2026)
+        if (message.content === '!04-06-2026') {
+            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
+                return message.reply('❌ Alleen Admins mogen dit filter commando uitvoeren.');
+            }
 
-        const statusMsg = await message.reply('⏳ Bezig met filteren... Alle data vóór **04-06-2026** wordt verwijderd.');
+            const partnerChannel = message.guild.channels.cache.find(c => c.name.toLowerCase().includes('partner') && c.name !== 'partner-log');
+            if (!partnerChannel) return message.reply('❌ Partnerkanaal niet gevonden.');
 
-        try {
-            await pool.query('UPDATE partners SET count = 0');
+            const statusMsg = await message.reply('⏳ Bezig met filteren... Alle data vóór **04-06-2026** wordt verwijderd.');
+
+            await safeQuery('UPDATE partners SET count = 0');
             const filterDate = new Date('2026-06-04T00:00:00Z').getTime();
 
             const messages = await partnerChannel.messages.fetch({ limit: 100 });
@@ -163,51 +169,13 @@ async function handleMessageCreate(message) {
                     } catch (err) { console.error('Kon bericht niet deleten:', err.message); }
                 } else {
                     if (msg.content.includes('http')) {
-                        await pool.query('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
+                        await safeQuery('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
                     }
                 }
             }
 
             await updateLeaderboard(message.guild);
-            await statusMsg.edit(`✅ **Filter succesvol toegepast!**\n• Berichten van vóór 04-06-2026 zijn uit Discord opgeschoond (${verwijderdUitKanaal} stuks).\n• Het leaderboard telt nu alleen de partners vanaf 4 juni 2026.`);
-        } catch (err) {
-            console.error(err);
-            await statusMsg.edit('❌ Er ging iets mis tijdens het filteren.');
-        }
-    }
-}
-
-// --- HOOFD EXPORT (Gebaseerd op InteractionCreate) ---
-export default {
-    name: Events.InteractionCreate,
-    async execute(interaction, client) {
-        // Truc om ook MessageCreate events op te vangen binnen deze ene file!
-        if (!interaction.isButton()) {
-            // Als de bot een event doorstuurt dat geen interactie is, sturen we het door naar de berichten-handler
-            if (interaction.content !== undefined) {
-                return await handleMessageCreate(interaction);
-            }
-            return;
-        }
-
-        // Filter op onze specifieke knoppen
-        if (interaction.customId === 'partner_refresh' || interaction.customId === 'partner_reset') {
-            
-            // Administrator check
-            if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                return interaction.reply({ content: '❌ Alleen Administrators mogen dit leaderboard beheren.', ephemeral: true });
-            }
-
-            if (interaction.customId === 'partner_refresh') {
-                await interaction.deferUpdate().catch(() => null); 
-                await updateLeaderboard(interaction.guild);
-            }
-
-            if (interaction.customId === 'partner_reset') {
-                await pool.query('UPDATE partners SET count = 0');
-                await interaction.reply({ content: '🗑️ Het partner leaderboard is volledig gereset naar 0!', ephemeral: true });
-                await updateLeaderboard(interaction.guild);
-            }
+            await statusMsg.edit(`✅ **Filter succesvol toegepast!**\n• Berichten van vóór 04-06-2026 zijn opgeschoond (${verwijderdUitKanaal} stuks).\n• Het leaderboard telt nu alleen vanaf 4 juni 2026.`);
         }
     }
 };
