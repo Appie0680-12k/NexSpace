@@ -1,42 +1,41 @@
 import { EmbedBuilder, Events, PermissionFlagsBits } from 'discord.js';
 import pg from 'pg';
 
-// Database pool configuratie (Geoptimaliseerd met automatische client-release tegen crashes)
+// Gecorrigeerde Pool configuratie met kortere timeouts tegen vastlopers
 const pool = new pg.Pool({ 
     connectionString: process.env.DATABASE_URL, 
     ssl: { rejectUnauthorized: false },
-    max: 5,
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 5000
+    max: 10,                          // Maximaal 10 gelijktijdige verbindingen
+    idleTimeoutMillis: 5000,          // Sluit ongebruikte verbindingen na 5 seconden
+    connectionTimeoutMillis: 3000     // Geef sneller op als de DB niet reageert in plaats van te crashen
 });
 
 pool.on('error', (err) => {
     console.error('⚠️ [PARTNER DB POOL ERROR]:', err.message);
 });
 
-// Veilige database query helper om database-hangen op Railway te voorkomen
+// WATERDICHTE QUERY HELPER (Laat verbindingen NOOIT openstaan)
 async function safeQuery(queryText, params = []) {
     let client;
     try {
-        client = await pool.connect();
-        return await client.query(queryText, params);
+        client = await pool.connect(); // Pak een verbinding uit de pool
+        const result = await client.query(queryText, params);
+        return result;
     } catch (err) {
         console.error('❌ [DATABASE QUERY FAILED]:', err.message);
         return null;
     } finally {
-        if (client) client.release();
+        if (client) client.release(); // CRUCIAL: Geef de verbinding ALTIJD direct terug aan de pool!
     }
 }
 
-// Functie om het leaderboard te genereren en te updaten
+// Genereer en update het leaderboard in #partner-log
 async function updateLeaderboard(guild) {
     try {
         await safeQuery('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
         await safeQuery('CREATE TABLE IF NOT EXISTS partner_config (id INTEGER PRIMARY KEY, last_msg_id TEXT)');
 
         const res = await safeQuery('SELECT user_id, count FROM partners WHERE count > 0 ORDER BY count DESC LIMIT 10');
-        
-        // Zoek het logkanaal op basis van de naam 'partner-log'
         const logChannel = guild.channels.cache.find(c => c.name === 'partner-log');
         if (!logChannel || !res) return;
 
@@ -45,8 +44,6 @@ async function updateLeaderboard(guild) {
         
         const totalPartners = totalPartnersRes?.rows[0]?.total ? parseInt(totalPartnersRes.rows[0].total) : 0;
         const totalUsers = totalTopPartnersRes?.rows[0]?.total_users ? parseInt(totalTopPartnersRes.rows[0].total_users) : 0;
-        
-        // --- PRIJSVERLAGING LOGICA: €0,50 per partner ---
         const serverOmzet = (totalPartners * 0.50).toFixed(2); 
 
         const embed = new EmbedBuilder()
@@ -54,7 +51,7 @@ async function updateLeaderboard(guild) {
             .setColor('#00fbff')
             .setThumbnail(guild.iconURL({ dynamic: true }))
             .setTimestamp()
-            .setFooter({ text: 'NexSpace Automation • Updates via !partners', iconURL: guild.iconURL() });
+            .setFooter({ text: 'NexSpace Automation • Beheer via chatcommando\'s', iconURL: guild.iconURL() });
 
         let list = "";
         if (res.rows.length === 0) {
@@ -78,7 +75,6 @@ async function updateLeaderboard(guild) {
         const configRes = await safeQuery('SELECT last_msg_id FROM partner_config WHERE id = 1');
         let leaderboardMsg;
 
-        // Geen knoppen (components) meer meesturen om conflicten met sollicitaties te vermijden
         if (configRes && configRes.rows.length > 0) {
             try {
                 leaderboardMsg = await logChannel.messages.fetch(configRes.rows[0].last_msg_id);
@@ -97,16 +93,15 @@ async function updateLeaderboard(guild) {
     }
 }
 
-// --- ZUIVERE MESSAGE_CREATE EXPORT ---
 export default {
     name: Events.MessageCreate,
     async execute(message) {
         if (message.author.bot || !message.guild) return;
 
-        // Dynamische kanaalcheck: herkent elk kanaal waar het woord 'partner' in staat (behalve de log)
+        // Herken elk kanaal waar 'partner' in de naam staat (behalve de log)
         const isPartnerChannel = message.channel.name.toLowerCase().includes('partner') && message.channel.name !== 'partner-log';
 
-        // 1. AUTO-UPDATE BIJ NIEUWE LINK IN PARTNERKANAAL
+        // 1. AUTOMATISCHE REGISTRATIE BIJ NIEUWE LINK
         if (isPartnerChannel && message.content.includes('http')) {
             await safeQuery('CREATE TABLE IF NOT EXISTS partners (user_id TEXT PRIMARY KEY, count INTEGER DEFAULT 0)');
             await safeQuery('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [message.author.id]);
@@ -114,22 +109,22 @@ export default {
             await updateLeaderboard(message.guild);
         }
 
-        // 2. HANDMATIGE UPDATE / VERVERSEN VIA CHAT (!partners)
+        // 2. HANDMATIG VERVERSEN COMMANDO (!partners)
         if (message.content.toLowerCase() === '!partners') {
             await updateLeaderboard(message.guild);
             if (message.channel.name !== 'partner-log') {
-                await message.reply('✅ Het leaderboard in #partner-log is succesvol bijgewerkt op basis van €0,50 per partner!');
+                await message.reply('✅ Het leaderboard in #partner-log is succesvol ververst!');
             }
         }
 
-        // 3. SYNC COMMANDO VIA CHAT (/partner-sync)
+        // 3. COMPLETE RE-SYNC (Scant de laatste 100 berichten en herstelt de database)
         if (message.content === '/partner-sync') {
             if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
             
             const partnerChannel = message.guild.channels.cache.find(c => c.name.toLowerCase().includes('partner') && c.name !== 'partner-log');
             if (!partnerChannel) return message.reply('❌ Kan het partnerkanaal niet vinden.');
 
-            const statusMsg = await message.reply('⚙️ Bezig met scannen van de berichten uit het partnerkanaal...');
+            const statusMsg = await message.reply('⚙️ Bezig met database sync... Dit lost de haperingen op.');
             await safeQuery('UPDATE partners SET count = 0');
 
             const messages = await partnerChannel.messages.fetch({ limit: 100 });
@@ -139,43 +134,7 @@ export default {
                 }
             }
             await updateLeaderboard(message.guild);
-            return statusMsg.edit('✅ Volledige kanaal-sync voltooid en leaderboard live bijgewerkt!');
-        }
-
-        // 4. DATUM-FILTER Commando (!04-06-2026)
-        if (message.content === '!04-06-2026') {
-            if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) {
-                return message.reply('❌ Alleen Admins mogen dit filter commando uitvoeren.');
-            }
-
-            const partnerChannel = message.guild.channels.cache.find(c => c.name.toLowerCase().includes('partner') && c.name !== 'partner-log');
-            if (!partnerChannel) return message.reply('❌ Partnerkanaal niet gevonden.');
-
-            const statusMsg = await message.reply('⏳ Bezig met filteren... Alle data vóór **04-06-2026** wordt verwijderd.');
-
-            await safeQuery('UPDATE partners SET count = 0');
-            const filterDate = new Date('2026-06-04T00:00:00Z').getTime();
-
-            const messages = await partnerChannel.messages.fetch({ limit: 100 });
-            let verwijderdUitKanaal = 0;
-
-            for (const msg of messages.values()) {
-                if (msg.author.bot) continue;
-
-                if (msg.createdAt.getTime() < filterDate) {
-                    try {
-                        await msg.delete();
-                        verwijderdUitKanaal++;
-                    } catch (err) { console.error('Kon bericht niet deleten:', err.message); }
-                } else {
-                    if (msg.content.includes('http')) {
-                        await safeQuery('INSERT INTO partners (user_id, count) VALUES ($1, 1) ON CONFLICT (user_id) DO UPDATE SET count = partners.count + 1', [msg.author.id]);
-                    }
-                }
-            }
-
-            await updateLeaderboard(message.guild);
-            await statusMsg.edit(`✅ **Filter succesvol toegepast!**\n• Berichten van vóór 04-06-2026 zijn opgeschoond (${verwijderdUitKanaal} stuks).\n• Het leaderboard telt nu alleen vanaf 4 juni 2026.`);
+            return statusMsg.edit('✅ Synchronisatie voltooid! Alles staat weer live.');
         }
     }
 };
