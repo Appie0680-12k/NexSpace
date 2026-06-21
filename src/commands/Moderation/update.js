@@ -1,4 +1,14 @@
-import { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+```javascript
+import { 
+    SlashCommandBuilder, 
+    ModalBuilder, 
+    TextInputBuilder, 
+    TextInputStyle, 
+    ActionRowBuilder, 
+    EmbedBuilder, 
+    ButtonBuilder, 
+    ButtonStyle 
+} from 'discord.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -11,12 +21,28 @@ export default {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('big')
-                .setDescription('🚀 Lanceer direct de exclusieve NexSpace Automation Mega-Update met gadgets.')),
+                .setDescription('🚀 Grote exclusieve update met gadgets (optioneel aan te passen voor toekomstige updates).')
+                .addStringOption(option =>
+                    option.setName('titel')
+                        .setDescription('Aangepaste titel voor de grote update (optioneel).')
+                        .setRequired(false))
+                .addStringOption(option =>
+                    option.setName('wijzigingen')
+                        .setDescription('Aangepaste tekst/wijzigingen van onbeperkte lengte (optioneel).')
+                        .setRequired(false))
+                .addStringOption(option =>
+                    option.setName('versie')
+                        .setDescription('Aangepaste versie, bijv: v2.5.0 of [HOTFIX] (optioneel).')
+                        .setRequired(false))
+                .addStringOption(option =>
+                    option.setName('banner')
+                        .setDescription('URL naar een banner afbeelding voor bovenaan de update (optioneel).')
+                        .setRequired(false))),
 
     async execute(interaction, guildConfig, client) {
         const sub = interaction.options.getSubcommand();
 
-        // ─── OPTIE 1: DE NORMALE UPDATE (JOUW OUDE MODAL) ───
+        // ─── OPTIE 1: DE NORMALE UPDATE (INCLUSIEF DIRECTE AFHANDELING) ───
         if (sub === 'normaal') {
             const modal = new ModalBuilder()
                 .setCustomId('update_modal')
@@ -49,12 +75,52 @@ export default {
                 new ActionRowBuilder().addComponents(versionInput)
             );
 
-            return await interaction.showModal(modal);
+            // Toon de pop-up aan de gebruiker
+            await interaction.showModal(modal);
+
+            // Wacht binnen DIT script totdat de gebruiker op "Verzenden" klikt (maximaal 5 minuten)
+            try {
+                const submitted = await interaction.awaitModalSubmit({
+                    time: 300000, 
+                    filter: i => i.customId === 'update_modal' && i.user.id === interaction.user.id,
+                });
+
+                // Vertel Discord direct dat we de invoer verwerken (stopt het laadscherm!)
+                await submitted.deferReply({ ephemeral: true });
+
+                const title = submitted.fields.getTextInputValue('update_title');
+                const changes = submitted.fields.getTextInputValue('update_changes');
+                const version = submitted.fields.getTextInputValue('update_version') || 'v1.0.0';
+
+                const changelogChannel = interaction.guild.channels.cache.find(c => 
+                    c.name.includes('changelog') || c.name.includes('update') || c.name.includes('announcement')
+                );
+
+                if (!changelogChannel) {
+                    return await submitted.editReply({ content: '❌ Kon geen geschikt update- of changelogkanaal vinden.' });
+                }
+
+                // Prachtige normale embed opbouwen
+                const updateEmbed = new EmbedBuilder()
+                    .setTitle(`📢 ${title}`)
+                    .setColor('#00fbff')
+                    .setDescription(changes)
+                    .addFields({ name: '📌 Versie / Type', value: `\`${version}\``, inline: true })
+                    .setFooter({ text: `Doorgegeven door ${interaction.user.username} • NexSpace`, iconURL: interaction.user.displayAvatarURL() })
+                    .setTimestamp();
+
+                await changelogChannel.send({ embeds: [updateEmbed] });
+                await submitted.editReply({ content: '✅ **De server-update is succesvol geplaatst!**' });
+
+            } catch (err) {
+                // Vangt op als de gebruiker de pop-up sluit zonder te verzenden of als er een timeout is
+                console.log('Modal niet binnen de tijd ingediend of gesloten.');
+            }
+            return;
         }
 
         // ─── OPTIE 2: DE EXCLUSIEVE BIG UPDATE (GIGANTISCH MET GADGETS) ───
         if (sub === 'big') {
-            // Direct antwoorden zodat Discord niet gaat hangen
             await interaction.deferReply({ ephemeral: true });
 
             try {
@@ -67,73 +133,43 @@ export default {
                     return await interaction.editReply({ content: '❌ Kon geen geschikt update- of changelogkanaal vinden.' });
                 }
 
-                // 🌐 EMBED 1: MAINFRAME INTRO
+                const customTitle = interaction.options.getString('titel');
+                const customChanges = interaction.options.getString('wijzigingen');
+                const customVersion = interaction.options.getString('versie');
+                const customBanner = interaction.options.getString('banner');
+
                 const introEmbed = new EmbedBuilder()
-                    .setTitle('🚀 MAIN-FRAME UPGRADE: SYSTEM OVERHAUL')
+                    .setTitle(customTitle ? `🚀 ${customTitle.toUpperCase()}` : '🚀 MAIN-FRAME UPGRADE: SYSTEM OVERHAUL')
                     .setColor('#00fbff')
-                    .setDescription(
+                    .setTimestamp();
+
+                if (customChanges) {
+                    introEmbed.setDescription(
+                        `⚡ **ATTENTIE NEXSPACE COMMUNITY** ⚡\n\n` +
+                        `Er is zojuist een grote server-brede update live gezet! Lees de details van deze upgrade hieronder aandachtig door.\n\n` +
+                        `🤖 *Systeemarchitect:* **Appie (Klapstoel)** 🔥`
+                    );
+                } else {
+                    introEmbed.setDescription(
                         `⚡ **ATTENTIE NEXSPACE COMMUNITY** ⚡\n\n` +
                         `Achter de schermen is het mainframe volledig op de schop gegooid. Vanaf **NU** staat er een gigantische server-brede update live die onze economie, interactiviteit en activiteit naar een ongekend niveau tilt!\n\n` +
                         `🤖 *Systeemarchitect:* **Appie (Klapstoel)** 🔥`
-                    )
-                    .setTimestamp();
+                    );
+                }
 
-                // 📡 EMBED 2: TECH GADGETS & INJECTIES (Terminal-Style)
+                if (customBanner) {
+                    introEmbed.setImage(customBanner);
+                }
+
                 const modulesEmbed = new EmbedBuilder()
-                    .setTitle('📡 GEACTIVEERDE INJECTIES & AUTOMATION GADGETS')
-                    .setColor('#1a1a1a')
-                    .addFields(
-                        { name: '💎 MODULE 01 // PARTNER-SYSTEM v2', value: '```md\n# STATUS: OPTIMALIZED\n* Database-leaks volledig gedicht.\n* Scant nu 100% accuraat elke partnerlink.\n* Waarde direct berekend op €0,50 per partner.
-```' },
-                        { name: '💬 MODULE 02 // AI SFEER-METER', value: '```md\n# STATUS: OPERATIONAL\n* Analyseert live de vibe in #┃💭・kletshoek.\n* Bij 96%+ triggeren we een server-brede Sfeer Drop.\n* Toxic gedrag trekt de meter direct omlaag.```' },
-                        { name: '⚔️ MODULE 03 // PARTNER DUELS & CREDITS', value: '```md\n# STATUS: ACTIVE\n* Iedereen start direct met 100 NexSpace Credits.\n* Daag Elite Leden uit voor 24-uurs partnerduels.\n* De winnaar pakt de volledige inzet via het systeem.
-```' },
-                        { name: '🏪 MODULE 04 // BLACK MARKET SHOP', value: '```md\n# STATUS: ONLINE\n* Koop privileges met credits.\n* Duel Schild: bescherm je wallet bij verlies.```' },
-                        { name: '🔥 MODULE 05 // DAILY CHAT STREAKS', value: '```md\n# STATUS: TRACKING\n* Daily kletshoek activiteit bijgehouden.\n* Bouw streak = multipliers op al je winsten.
-```' },
-                        { name: '👾 MODULE 06 // SYSTEM GLITCH EVENTS', value: '```md\n# STATUS: DANGEROUS\n* 0.5% kans per bericht op mainframe-hack.\n* Los code op, claim de Server Debugger rol.```' }
-                    );
+                    .setColor('#1a1a1a');
 
-                // 📚 EMBED 3: INSTRUCTIONS FOOTER
-                const infoEmbed = new EmbedBuilder()
-                    .setTitle('📚 SYSTEEM CAPACITEITEN & INTERACTIE')
-                    .setColor('#00fbff')
-                    .setDescription(`Alle systemen zijn vanaf nu live operationeel. Gebruik de onderstaande knoppen om direct naar de belangrijkste kanalen te navigeren!`)
-                    .setFooter({ text: 'NexSpace Automation • Codebase by Appie (Klapstoel)', iconURL: guild.iconURL() });
+                if (customChanges) {
+                    modulesEmbed.setTitle('📡 GEGEVENS & UPGRADE LOGS')
+                        .setDescription(`\`\`\`md\n${customChanges}\`\`\``);
+                } else {
+                    modulesEmbed.setTitle('📡 GEACTIVEERDE INJECTIES & AUTOMATION GADGETS')
+                        .addFields(
+                            { name: '💎 MODULE 01 // PARTNER-SYSTEM v2', value: '
 
-                // 🎛️ INTERACTIEVE GADGETS (BUTTONS)
-                const keybindsChannel = guild.channels.cache.find(c => c.name.includes('keybinds'));
-                const kletshoekChannel = guild.channels.cache.find(c => c.name.includes('kletshoek'));
-                const buttonRow = new ActionRowBuilder();
-
-                if (keybindsChannel) {
-                    buttonRow.addComponents(
-                        new ButtonBuilder()
-                            .setLabel('⌨️ Bekijk Commando Overzicht')
-                            .setStyle(ButtonStyle.Link)
-                            .setURL(`https://discord.com/channels/${guild.id}/${keybindsChannel.id}`)
-                    );
-                }
-
-                if (kletshoekChannel) {
-                    buttonRow.addComponents(
-                        new ButtonBuilder()
-                            .setLabel('💭 Naar de Kletshoek')
-                            .setStyle(ButtonStyle.Link)
-                            .setURL(`https://discord.com/channels/${guild.id}/${kletshoekChannel.id}`)
-                    );
-                }
-
-                const componenten = buttonRow.components.length > 0 ? [buttonRow] : [];
-                
-                // Verstuur alles tegelijkertijd in het kanaal
-                await changelogChannel.send({ embeds: [introEmbed, modulesEmbed, infoEmbed], components: componenten });
-                await interaction.editReply({ content: '⚡ **MEGA-UPDATE SUCCESVOL GELANCEERD! De 3 embeds en knoppen staan live.**' });
-
-            } catch (error) {
-                console.error('Fout bij big-update:', error);
-                await interaction.editReply({ content: '❌ Mainframe error tijdens het pushen van de mega-update.' });
-            }
-        }
-    }
-};
+```
