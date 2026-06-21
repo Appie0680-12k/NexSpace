@@ -4,6 +4,7 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
+  Routes, // Toegevoegd om de cache direct te kunnen pushen
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -170,8 +171,16 @@ class TitanBot extends Client {
           '⚡ Slash commands registreren...'
         );
 
-        // Geforceerde directe registratie op jouw specifieke NexSpace server
         const targetGuildId = '1475577072381460521';
+        const commandsData = this.commands.map(cmd => cmd.data.toJSON());
+
+        // Dwing Discord om alle oude command-caches weg te gooien
+        await this.rest.put(
+          Routes.applicationCommands(this.user.id),
+          { body: commandsData }
+        );
+
+        // Geforceerde directe registratie op jouw specifieke NexSpace server via je handler
         await registerSlashCommands(this, targetGuildId);
 
         console.log(
