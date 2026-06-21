@@ -11,7 +11,7 @@ export default {
 
     async execute(interaction) {
         const suggestieTekst = interaction.options.getString('tekst');
-        const suggestieKanaal = interaction.guild.channels.cache.find(c => c.name === 'suggesties');
+        const suggestieKanaal = interaction.guild.channels.cache.find(c => c.name === '┃💡・suggesties');
 
         if (!suggestieKanaal) return interaction.reply({ content: 'Kanaal #suggesties niet gevonden.', ephemeral: true });
 
