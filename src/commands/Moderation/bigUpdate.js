@@ -1,61 +1,66 @@
-import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('big-update')
-        .setDescription('Lanceer de mega NexSpace Automation update met een zieke layout!')
+        .setDescription('🚀 Lanceer de exclusieve NexSpace Automation Mega-Update met interactive gadgets.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    async execute(interaction) {
+    async execute(interaction, guildConfig, client) {
+        // Direct deferren zodat de bot alle tijd heeft en Discord niet blijft laden
         await interaction.deferReply({ ephemeral: true });
 
         try {
             const guild = interaction.guild;
-            // Zoek het juiste kanaal
-            const announcementChannel = guild.channels.cache.find(c => 
-                c.name.includes('update') || c.name.includes('announcement') || c.name.includes('changelog')
+            
+            // Zoek automatisch naar het juiste update/changelog kanaal
+            const changelogChannel = guild.channels.cache.find(c => 
+                c.name.includes('changelog') || c.name.includes('update') || c.name.includes('announcement')
             );
 
-            if (!announcementChannel) {
-                return await interaction.editReply({ content: '❌ Kon geen geschikt update- of aankondigingskanaal vinden.' });
+            if (!changelogChannel) {
+                return await interaction.editReply({ content: '❌ Kon geen geschikt update- of changelogkanaal vinden.' });
             }
 
-            // ─── EMBED 1: HET GEZICHT ───
+            // ─── GADGET EMBED 1: HET MAINFRAME GEZICHT ───
             const introEmbed = new EmbedBuilder()
                 .setTitle('🚀 MAIN-FRAME UPGRADE: SYSTEM OVERHAUL')
                 .setColor('#00fbff')
                 .setDescription(
                     `⚡ **ATTENTIE NEXSPACE COMMUNITY** ⚡\n\n` +
-                    `Achter de schermen is het mainframe de afgelopen dagen volledig op de schop gegooid. Vanaf **NU** staat er een gigantische server-brede update live die onze economie, interactiviteit en activiteit naar een ongekend niveau tilt!\n\n` +
-                    `🤖 *Deze systemen zijn volledig op maat ontworpen, gecodeerd en geïntegreerd door:* **Appie (Klapstoel)** 🔥`
+                    `Achter de schermen is het mainframe volledig op de schop gegooid. Vanaf **NU** staat er een gigantische server-brede update live die onze economie, interactiviteit en activiteit naar een ongekend niveau tilt!\n\n` +
+                    `🤖 *Systeemarchitect:* **Appie (Klapstoel)** 🔥`
                 )
                 .setTimestamp();
 
-            // ─── EMBED 2: DE MODULES (Hacker-stijl) ───
+            // ─── GADGET EMBED 2: TECH STATS & INJECTIES (Terminal-Style) ───
             const modulesEmbed = new EmbedBuilder()
-                .setTitle('📡 GEACTIVEERDE INJECTIES & MODULES')
+                .setTitle('📡 GEACTIVEERDE INJECTIES & AUTOMATION GADGETS')
                 .setColor('#1a1a1a')
                 .addFields(
-                    { name: '💎 MODULE 01 // PARTNER-SYSTEM v2', value: '```md\n# STATUS: OPTIMALIZED\n* Database-leaks gedicht.\n* Scant 100% accuraat elke link.\n* Waarde: €0,50 per partner.
-```' },
-                    { name: '💬 MODULE 02 // AI SFEER-METER', value: '```md\n# STATUS: OPERATIONAL\n* Analyseert live de vibe.\n* Sfeer Drops bij 96% hype.\n* Toxic gedrag = sfeer omlaag.```' },
-                    { name: '⚔️ MODULE 03 // PARTNER DUELS', value: '```md\n# STATUS: ACTIVE\n* Start met 100 NexSpace Credits.\n* Win credits door te duelleren.\n* 24-uurs competitie modus.
-```' },
-                    { name: '🏪 MODULE 04 // BLACK MARKET', value: '```md\n# STATUS: ONLINE\n* Koop illegale privileges.\n* Duel Schild: bescherm je wallet.```' },
-                    { name: '🔥 MODULE 05 // CHAT STREAKS', value: '```md\n# STATUS: TRACKING\n* Daily kletshoek activiteit.\n* Bouw streak = hogere multipliers.
-```' },
-                    { name: '👾 MODULE 06 // GLITCH EVENTS', value: '```md\n# STATUS: DANGEROUS\n* 0.5% kans per bericht op hack.\n* Kraak de code, win de Debugger rol.```' },
-                    { name: '🔮 MODULE 07 // WRAPPED', value: '```md\n# STATUS: READY\n* Genereer jouw persoonlijke server-statistieken in één oogopslag.
-```' }
-                )
-                .setFooter({ text: 'NexSpace Core Automation • All systems nominal', iconURL: guild.iconURL() });
-
-            await announcementChannel.send({ embeds: [introEmbed, modulesEmbed] });
-            await interaction.editReply({ content: '⚡ **MEGA UPDATE GELANCEERD!**' });
-
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ content: '❌ Mainframe error tijdens het pushen.' });
-        }
-    }
-};
+                    { 
+                        name: '💎 MODULE 01 // PARTNER-SYSTEM v2', 
+                        value: '```md\n# STATUS: OPTIMALIZED\n* Database-leaks volledig gedicht.\n* Scant nu 100% accuraat elke partnerlink.\n* Waarde direct berekend op €0,50 per partner.
+```' 
+                    },
+                    { 
+                        name: '💬 MODULE 02 // AI SFEER-METER', 
+                        value: '```md\n# STATUS: OPERATIONAL\n* Analyseert live de vibe in #┃💭・kletshoek.\n* Bij 96%+ triggeren we een server-brede Sfeer Drop.\n* Toxic gedrag trekt de meter direct omlaag.```' 
+                    },
+                    { 
+                        name: '⚔️ MODULE 03 // PARTNER DUELS & CREDITS', 
+                        value: '```md\n# STATUS: ACTIVE\n* Iedereen start direct met 100 NexSpace Credits.\n* Daag Elite Leden uit voor 24-uurs partnerduels.\n* De winnaar pakt de volledige inzet via het systeem.
+```' 
+                    },
+                    { 
+                        name: '🏪 MODULE 04 // BLACK MARKET SHOP', 
+                        value: '```md\n# STATUS: ONLINE\n* Koop illegale server-privileges met je credits.\n* Koop een Duel Schild om je wallet te beschermen bij verlies.```' 
+                    },
+                    { 
+                        name: '🔥 MODULE 05 // DAILY CHAT STREAKS', 
+                        value: '```md\n# STATUS: TRACKING\n* Daily kletshoek activiteit wordt bijgehouden.\n* Bouw een streak op voor multipliers op al je winsten.
+```' 
+                    },
+                    { 
+                        name: '👾 MODULE 06 // SYSTEM GLITCH EVENTS', 
+                        value: '
