@@ -4,7 +4,6 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
-  Routes, // Toegevoegd om de cache direct te kunnen pushen
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -151,53 +150,34 @@ class TitanBot extends Client {
       await this.loadEvents();
 
       /* =========================
-         LOGIN
+         LOGIN & SYNCHRONISATIE
       ========================= */
 
       console.log('🔐 Inloggen bij Discord...');
 
+      // Zodra de bot écht klaar is (ready), voeren we de registratie uit
+      this.once('ready', async () => {
+        console.log(`✅ Bot online als ${this.user.tag}`);
+        
+        try {
+          console.log('⚡ Slash commands synchroniseren...');
+          const targetGuildId = '1475577072381460521';
+          
+          // Gebruik de ingebouwde commandLoader handler om de synchronisatie veilig uit te voeren
+          await registerSlashCommands(this, targetGuildId);
+          console.log(`✅ Slash commands succesvol geregistreerd voor server: ${targetGuildId}`);
+        } catch (registerError) {
+          console.error(`⚠️ Slash command registratie fout: ${registerError.message}`);
+        }
+      });
+
       await this.login(CLEAN_TOKEN);
 
-      console.log(
-        `✅ Bot online als ${this.user.tag}`
-      );
-
-      /* =========================
-         REGISTER SLASH COMMANDS
-      ========================= */
-
-      try {
-        console.log(
-          '⚡ Slash commands registreren...'
-        );
-
-        const targetGuildId = '1475577072381460521';
-        const commandsData = this.commands.map(cmd => cmd.data.toJSON());
-
-        // Dwing Discord om alle oude command-caches weg te gooien
-        await this.rest.put(
-          Routes.applicationCommands(this.user.id),
-          { body: commandsData }
-        );
-
-        // Geforceerde directe registratie op jouw specifieke NexSpace server via je handler
-        await registerSlashCommands(this, targetGuildId);
-
-        console.log(
-          `✅ Slash commands succesvol geregistreerd voor server: ${targetGuildId}`
-        );
-      } catch (registerError) {
-        console.error(
-          `⚠️ Slash command fout: ${registerError.message}`
-        );
-      }
     } catch (err) {
       console.error(
         `❌ Kritieke startup fout: ${err.message}`
       );
-
       console.error(err);
-
       process.exit(1);
     }
   }
