@@ -1,4 +1,4 @@
-import { Events, EmbedBuilder, ActivityType } from 'discord.js';
+import { Events, EmbedBuilder, ActivityType, Routes } from 'discord.js';
 
 // De nieuwsbronnen op de achtergrond
 const WORLD_NEWS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen';
@@ -19,10 +19,8 @@ const FILTER_KEYWORDS = [
     'wk', 'wereldkampioenschap', 'fifa', 'knvb', 'oranje', 'wk-ploeg', 'wk-selectie', 'kwalificatie', 'finale'
 ];
 
-// Slimme lijstjes om verzonden artikelen in op te slaan
 const sentWorldArticles = new Set();
 const sentFinanceArticles = new Set();
-
 let liveMessage = null;
 
 // Ingebouwde XML parser met extra headers tegen blokkades
@@ -39,32 +37,14 @@ async function fetchRssFeed(url) {
 
         for (let i = 1; i < items.length; i++) {
             const item = items[i];
-
-            const title =
-                item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] ||
-                item.match(/<title>(.*?)<\/title>/)?.[1];
-
-            const link =
-                item.match(/<link>(.*?)<\/link>/)?.[1];
-
-            const description =
-                item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] ||
-                item.match(/<description>(.*?)<\/description>/)?.[1];
-
-            const guid =
-                item.match(/<guid.*?>(.*?)<\/guid>/)?.[1] || link;
-
-            const pubDate =
-                item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1];
+            const title = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/)?.[1] || item.match(/<title>(.*?)<\/title>/)?.[1];
+            const link = item.match(/<link>(.*?)<\/link>/)?.[1];
+            const description = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/)?.[1] || item.match(/<description>(.*?)<\/description>/)?.[1];
+            const guid = item.match(/<guid.*?>(.*?)<\/guid>/)?.[1] || link;
+            const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1];
 
             if (title && link) {
-                parsedItems.push({
-                    title,
-                    link,
-                    contentSnippet: description || '',
-                    guid,
-                    pubDate
-                });
+                parsedItems.push({ title, link, contentSnippet: description || '', guid, pubDate });
             }
         }
         return { items: parsedItems };
@@ -73,7 +53,6 @@ async function fetchRssFeed(url) {
     }
 }
 
-// Functie die checkt of een artikel voldoet aan onze belangrijke trefwoorden
 function isBelangrijkNieuws(title, description) {
     const volledigeTekst = `${title.toLowerCase()} ${description.toLowerCase()}`;
     return FILTER_KEYWORDS.some(keyword => volledigeTekst.includes(keyword));
@@ -84,18 +63,31 @@ export default {
     once: true,
 
     async execute(client) {
-        console.log(
-            `🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js!`
-        );
-        client.user.setPresence({
-    activities: [
-        {
-            name: 'Gemaakt door Appie0680',
-            type: ActivityType.Listening
+        console.log(`🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js!`);
+        
+        // --- ⚡ GEFORCEERDE GLOBAL SLASH COMMAND REGISTRATIE ---
+        try {
+            console.log('⚡ Slash commands wereldwijd (globaal) registreren via ready event...');
+            if (client.commands && client.commands.size > 0) {
+                const commandsData = client.commands.map(cmd => cmd.data.toJSON());
+                
+                await client.rest.put(
+                    Routes.applicationCommands(client.user.id),
+                    { body: commandsData }
+                );
+                console.log(`✅ Succes! ${client.commands.size} slash commando's succesvol gepusht naar Discord.`);
+            } else {
+                console.warn('⚠️ Waarschuwing: Er zijn 0 commando\'s gevonden in de bot collectie om te registreresn.');
+            }
+        } catch (registerError) {
+            console.error(`❌ Fout tijdens globale registratie in ready.js: ${registerError.message}`);
         }
-    ],
-    status: 'online'
-});
+
+        // Status instellen
+        client.user.setPresence({
+            activities: [{ name: 'Gemaakt door Appie0680', type: ActivityType.Listening }],
+            status: 'online'
+        });
 
         // ==========================================================
         // SYSTEEM 1: WERELDNIEUWS (GEFILTERD)
@@ -104,50 +96,32 @@ export default {
             try {
                 const feed = await fetchRssFeed(WORLD_NEWS_URL);
                 if (!feed || !feed.items || feed.items.length === 0) return;
-
-                const recentItems = feed.items.slice(0, 5); // Iets grotere hap nemen om gefilterd nieuws te spotten
+                const recentItems = feed.items.slice(0, 5);
 
                 for (const item of recentItems) {
                     const articleId = item.guid || item.link;
-
                     if (!sentWorldArticles.has(articleId)) {
                         if (sentWorldArticles.size === 0) {
-                            recentItems.forEach(i =>
-                                sentWorldArticles.add(i.guid || i.link)
-                            );
+                            recentItems.forEach(i => sentWorldArticles.add(i.guid || i.link));
                             break;
                         }
-
                         sentWorldArticles.add(articleId);
 
-                        // 🔥 Check of het artikel gaat over Breaking, Oorlog of het WK
-                        if (!isBelangrijkNieuws(item.title, item.contentSnippet)) {
-                            continue; // Sla dit artikel over als het geen belangrijk trefwoord bevat
-                        }
+                        if (!isBelangrijkNieuws(item.title, item.contentSnippet)) continue;
 
                         for (const [guildId, guild] of client.guilds.cache) {
                             try {
-                                const nieuwsChannel = guild.channels.cache.find(
-                                    c => c.name === '┃🌍・wereldnieuws' || c.name === 'wereldnieuws'
-                                );
+                                const nieuwsChannel = guild.channels.cache.find(c => c.name === '┃🌍・wereldnieuws' || c.name === 'wereldnieuws');
                                 if (!nieuwsChannel) continue;
 
                                 const embed = new EmbedBuilder()
                                     .setTitle(`🚨 ${item.title}`)
                                     .setURL(item.link)
-                                    .setDescription(
-                                        item.contentSnippet ||
-                                        'Klik op de link om het artikel te lezen.'
-                                    )
-                                    .setColor('#FF0000') // Rood voor urgent/belangrijk nieuws
-                                    .setTimestamp(
-                                        item.pubDate ? new Date(item.pubDate) : new Date()
-                                    );
+                                    .setDescription(item.contentSnippet || 'Klik op de link om het artikel te lezen.')
+                                    .setColor('#FF0000')
+                                    .setTimestamp(item.pubDate ? new Date(item.pubDate) : new Date());
 
-                                await nieuwsChannel.send({
-                                    content: `🔗 ${item.link}`,
-                                    embeds: [embed]
-                                }).catch(() => null);
+                                await nieuwsChannel.send({ content: `🔗 ${item.link}`, embeds: [embed] }).catch(() => null);
                             } catch (err) {}
                         }
                     }
@@ -165,49 +139,33 @@ export default {
                 for (const url of FINANCE_FEEDS) {
                     const feed = await fetchRssFeed(url);
                     if (!feed || !feed.items || feed.items.length === 0) continue;
-
                     const recentItems = feed.items.slice(0, 3);
 
                     for (const item of recentItems) {
                         const articleId = item.guid || item.link;
-
                         if (!sentFinanceArticles.has(articleId)) {
                             if (sentFinanceArticles.size === 0) {
-                                recentItems.forEach(i =>
-                                    sentFinanceArticles.add(i.guid || i.link)
-                                );
+                                recentItems.forEach(i => sentFinanceArticles.add(i.guid || i.link));
                                 continue;
                             }
-
                             sentFinanceArticles.add(articleId);
 
                             for (const [guildId, guild] of client.guilds.cache) {
                                 try {
-                                    const financeChannel = guild.channels.cache.find(
-                                        c =>
-                                            c.name === '┃💰・financiële-nieuws' ||
-                                            c.name === '┃💰・financiele-nieuws' ||
-                                            c.name === 'financiële-nieuws' ||
-                                            c.name === 'financiele-nieuws'
+                                    const financeChannel = guild.channels.cache.find(c =>
+                                        c.name === '┃💰・financiële-nieuws' || c.name === '┃💰・financiele-nieuws' ||
+                                        c.name === 'financiële-nieuws' || c.name === 'financiele-nieuws'
                                     );
                                     if (!financeChannel) continue;
 
                                     const embed = new EmbedBuilder()
                                         .setTitle(`📊 ${item.title}`)
                                         .setURL(item.link)
-                                        .setDescription(
-                                            item.contentSnippet ||
-                                            'Klik op de link om het artikel te lezen.'
-                                        )
+                                        .setDescription(item.contentSnippet || 'Klik op de link om het artikel te lezen.')
                                         .setColor('#00fbff')
-                                        .setTimestamp(
-                                            item.pubDate ? new Date(item.pubDate) : new Date()
-                                        );
+                                        .setTimestamp(item.pubDate ? new Date(item.pubDate) : new Date());
 
-                                    await financeChannel.send({
-                                        content: `🔗 ${item.link}`,
-                                        embeds: [embed]
-                                    }).catch(() => null);
+                                    await financeChannel.send({ content: `🔗 ${item.link}`, embeds: [embed] }).catch(() => null);
                                 } catch (err) {}
                             }
                         }
@@ -224,7 +182,6 @@ export default {
         async function updateMarkets() {
             try {
                 let marketDescription = '**🪙 CRYPTO MARKETS**\n';
-
                 try {
                     const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
                     const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
@@ -234,38 +191,18 @@ export default {
                         const ethData = await ethRes.json().catch(() => null);
 
                         if (btcData && ethData) {
-                            const btcPrice = parseFloat(btcData.lastPrice).toLocaleString('en-US', {
-                                style: 'currency',
-                                currency: 'USD'
-                            });
+                            const btcPrice = parseFloat(btcData.lastPrice).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                            const ethPrice = parseFloat(ethData.lastPrice).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                            marketDescription += `• BTC: ${btcPrice}\n• ETH: ${ethPrice}\n\n`;
+                        } else { marketDescription += '• Crypto data parsing failed\n\n'; }
+                    } else { marketDescription += '• Crypto data unavailable\n\n'; }
+                } catch { marketDescription += '• Crypto API offline\n\n'; }
 
-                            const ethPrice = parseFloat(ethData.lastPrice).toLocaleString('en-US', {
-                                style: 'currency',
-                                currency: 'USD'
-                            });
-
-                            marketDescription += `• BTC: ${btcPrice}\n`;
-                            marketDescription += `• ETH: ${ethPrice}\n\n`;
-                        } else {
-                            marketDescription += '• Crypto data parsing failed\n\n';
-                        }
-                    } else {
-                        marketDescription += '• Crypto data unavailable\n\n';
-                    }
-                } catch {
-                    marketDescription += '• Crypto API offline\n\n';
-                }
-
-                marketDescription += '**📈 STOCKS**\n';
-                marketDescription += '• Nvidia: $135.20\n';
-                marketDescription += '• Apple: $189.30\n';
-                marketDescription += '• Tesla: $175.50\n';
+                marketDescription += '**📈 STOCKS**\n• Nvidia: $135.20\n• Apple: $189.30\n• Tesla: $175.50\n';
 
                 for (const [guildId, guild] of client.guilds.cache) {
                     try {
-                        const marketChannel = guild.channels.cache.find(
-                            c => c.name === 'live-koersen' || c.name === 'live-markets' || c.name === 'aandelen-koers' || c.name === 'aandelen-koer'
-                        );
+                        const marketChannel = guild.channels.cache.find(c => c.name === 'live-koersen' || c.name === 'live-markets' || c.name === 'aandelen-koers' || c.name === 'aandelen-koer');
                         if (!marketChannel) continue;
 
                         const embed = new EmbedBuilder()
@@ -285,9 +222,7 @@ export default {
                                 liveMessage = await marketChannel.send({ embeds: [embed] }).catch(() => { liveMessage = null; });
                             }
                         } else {
-                            await liveMessage.edit({ embeds: [embed] }).catch(() => {
-                                liveMessage = null;
-                            });
+                            await liveMessage.edit({ embeds: [embed] }).catch(() => { liveMessage = null; });
                         }
                     } catch (err) {}
                 }
@@ -296,7 +231,7 @@ export default {
             }
         }
 
-        // BIJ OPSTARTEN
+        // BIJ OPSTARTEN (Start nu na 2 seconden om rust te geven aan registratie)
         setTimeout(() => {
             checkWorldNews();
             checkFinanceNews();
@@ -305,6 +240,6 @@ export default {
             setInterval(checkWorldNews, 120000);
             setInterval(checkFinanceNews, 120000);
             setInterval(updateMarkets, 180000);
-        }, 5000);
+        }, 2000);
     }
 };
