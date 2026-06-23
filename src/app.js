@@ -4,6 +4,7 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
+  Routes, // Toegevoegd om de cache direct bij Discord te kunnen overschrijven
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -52,10 +53,10 @@ class TitanBot extends Client {
         GatewayIntentBits.GuildInvites,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages, // Zorgt dat de bot DM's kan ontvangen
+        GatewayIntentBits.DirectMessages,
       ],
       partials: [
-        Partials.Channel, // Zorgt dat messageCreate afvuurt in DM kanalen
+        Partials.Channel,
         Partials.Message,
       ],
     });
@@ -155,17 +156,22 @@ class TitanBot extends Client {
 
       console.log('🔐 Inloggen bij Discord...');
 
-      // Zodra de bot écht klaar is (ready), voeren we de registratie uit
       this.once('ready', async () => {
         console.log(`✅ Bot online als ${this.user.tag}`);
         
         try {
-          console.log('⚡ Slash commands synchroniseren...');
-          const targetGuildId = '1475577072381460521';
+          console.log('⚡ Slash commands wereldwijd (globaal) registreren...');
           
-          // Gebruik de ingebouwde commandLoader handler om de synchronisatie veilig uit te voeren
-          await registerSlashCommands(this, targetGuildId);
-          console.log(`✅ Slash commands succesvol geregistreerd voor server: ${targetGuildId}`);
+          // Haal de data op van alle geladen commando's en zet ze om naar JSON
+          const commandsData = this.commands.map(cmd => cmd.data.toJSON());
+
+          // Push ze direct globaal naar Discord (omzeilt server-id cache problemen)
+          await this.rest.put(
+            Routes.applicationCommands(this.user.id),
+            { body: commandsData }
+          );
+
+          console.log('✅ Slash commando cache succesvol wereldwijd vernieuwd!');
         } catch (registerError) {
           console.error(`⚠️ Slash command registratie fout: ${registerError.message}`);
         }
@@ -272,12 +278,10 @@ class TitanBot extends Client {
   startWebServer() {
     const app = express();
 
-    // Hoofdpagina: Stuurt een actieve response naar Uptime Services
     app.get('/', (req, res) => {
       res.status(200).send('🚀 TitanBot Status: Operationeel en 24/7 Online via Keep-Alive!');
     });
 
-    // Uitgebreide Gezondheidscheck voor monitoring tools
     app.get('/health', (req, res) => {
       res.status(200).json({
         status: 'online',
@@ -303,11 +307,10 @@ const bot = new TitanBot();
 
 /* =========================================================
    GEADVANCEERD CRASH PROTECTION SYSTEM
-   (Vangt fouten op zodat de bot NOOIT crasht of offline gaat)
 ========================================================= */
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ [ANTI-CRASH] Onopgevangen fout (Unhandled Promise Rejection):', reason);
+  console.error('⚠️ [ANTI-CRASH] Onopgevangen fout:', reason);
 });
 
 process.on('uncaughtException', (error, origin) => {
