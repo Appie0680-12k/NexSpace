@@ -4,7 +4,7 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
-  Routes, // Toegevoegd om de cache direct bij Discord te kunnen overschrijven
+  Routes, // Essentieel voor directe REST registratie van slash commands
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -53,10 +53,10 @@ class TitanBot extends Client {
         GatewayIntentBits.GuildInvites,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.DirectMessages, // Zorgt dat de bot DM's kan ontvangen
       ],
       partials: [
-        Partials.Channel,
+        Partials.Channel, // Zorgt dat messageCreate afvuurt in DM kanalen
         Partials.Message,
       ],
     });
@@ -106,9 +106,7 @@ class TitanBot extends Client {
 
       try {
         const dbInstance = await initializeDatabase();
-
         this.db = dbInstance.db;
-
         console.log(
           '✅ Database verbinding succesvol.'
         );
@@ -125,55 +123,69 @@ class TitanBot extends Client {
       this.startWebServer();
 
       /* =========================
-         COMMANDS
+         COMMANDS LADEN
       ========================= */
 
       console.log('📂 Commands laden...');
 
       try {
         await loadCommands(this);
-
         console.log(
-          `✅ ${this.commands.size} commands geladen.`
+          `✅ ${this.commands.size} commands geladen uit de mappen.`
         );
       } catch (commandError) {
         console.error(
-          `❌ Commands fout: ${commandError.message}`
+          `❌ Commands laden fout: ${commandError.message}`
         );
       }
 
       /* =========================
-         EVENTS
+         EVENTS LADEN
       ========================= */
 
       console.log('📅 Events laden...');
-
       await this.loadEvents();
 
       /* =========================
-         LOGIN & SYNCHRONISATIE
+         LOGIN & DIRECT REGISTREREN
       ========================= */
 
       console.log('🔐 Inloggen bij Discord...');
-
+      
+      // Zodra de bot succesvol verbinding heeft, forceren we de registratie
       this.once('ready', async () => {
-        console.log(`✅ Bot online als ${this.user.tag}`);
-        
+        console.log(`✅ Bot succesvol ingelogd als ${this.user.tag}`);
+
         try {
-          console.log('⚡ Slash commands wereldwijd (globaal) registreren...');
+          console.log('⚡ [REST-DIRECT] Slash commands geforceerd registreren...');
+          const targetGuildId = '1475577072381460521';
           
-          // Haal de data op van alle geladen commando's en zet ze om naar JSON
+          if (this.commands.size === 0) {
+            console.warn('⚠️ Waarschuwing: Er zijn 0 commando\'s geladen in het geheugen!');
+            return;
+          }
+
+          // Zet alle commando data om naar JSON formaat voor Discord API
           const commandsData = this.commands.map(cmd => cmd.data.toJSON());
 
-          // Push ze direct globaal naar Discord (omzeilt server-id cache problemen)
+          // 1. Direct pushen naar jouw specifieke NexSpace Server (Directe update!)
+          console.log(`📡 Pushen naar server: ${targetGuildId}...`);
+          await this.rest.put(
+            Routes.applicationGuildCommands(this.user.id, targetGuildId),
+            { body: commandsData }
+          );
+
+          // 2. Direct globaal pushen (Wereldwijde back-up)
+          console.log('📡 Wereldwijd (globaal) pushen...');
           await this.rest.put(
             Routes.applicationCommands(this.user.id),
             { body: commandsData }
           );
 
-          console.log('✅ Slash commando cache succesvol wereldwijd vernieuwd!');
+          console.log(`🎉 [REST-DIRECT] Alle ${this.commands.size} slash commands zijn succesvol live gezet op server én globaal!`);
         } catch (registerError) {
-          console.error(`⚠️ Slash command registratie fout: ${registerError.message}`);
+          console.error(`⚠️ Kritieke registratie fout: ${registerError.message}`);
+          console.error(registerError);
         }
       });
 
@@ -194,9 +206,7 @@ class TitanBot extends Client {
 
   async loadEvents() {
     try {
-      const eventsPath = fs.existsSync(
-        path.join(__dirname, 'events')
-      )
+      const eventsPath = fs.existsSync(path.join(__dirname, 'events'))
         ? path.join(__dirname, 'events')
         : path.join(__dirname, 'src', 'events');
 
@@ -220,17 +230,9 @@ class TitanBot extends Client {
 
       for (const file of eventFiles) {
         try {
-          const filePath = path.join(
-            eventsPath,
-            file
-          );
-
-          const eventModule = await import(
-            pathToFileURL(filePath).href
-          );
-
-          const event =
-            eventModule.default || eventModule;
+          const filePath = path.join(eventsPath, file);
+          const eventModule = await import(pathToFileURL(filePath).href);
+          const event = eventModule.default || eventModule;
 
           if (!event?.name || !event?.execute) {
             console.warn(
@@ -250,7 +252,6 @@ class TitanBot extends Client {
           }
 
           this.events.set(event.name, event);
-
           console.log(
             `✅ Event geladen: ${event.name}`
           );
@@ -278,10 +279,12 @@ class TitanBot extends Client {
   startWebServer() {
     const app = express();
 
+    // Hoofdpagina: Stuurt een actieve response naar Uptime Services
     app.get('/', (req, res) => {
       res.status(200).send('🚀 TitanBot Status: Operationeel en 24/7 Online via Keep-Alive!');
     });
 
+    // Uitgebreide Gezondheidscheck voor monitoring tools
     app.get('/health', (req, res) => {
       res.status(200).json({
         status: 'online',
@@ -307,10 +310,11 @@ const bot = new TitanBot();
 
 /* =========================================================
    GEADVANCEERD CRASH PROTECTION SYSTEM
+   (Vangt fouten op zodat de bot NOOIT crasht of offline gaat)
 ========================================================= */
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('⚠️ [ANTI-CRASH] Onopgevangen fout:', reason);
+  console.error('⚠️ [ANTI-CRASH] Onopgevangen fout (Unhandled Promise Rejection):', reason);
 });
 
 process.on('uncaughtException', (error, origin) => {
