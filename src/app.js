@@ -1,3 +1,4 @@
+```javascript
 import 'dotenv/config';
 import {
   Client,
@@ -49,29 +50,32 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      console.log('\n🚀 TitanBot kogelvrije startprocedure geactiveerd...\n');
+      console.log('\n🚀 TitanBot stabiele startprocedure geactiveerd...\n');
 
       if (!CLEAN_TOKEN) {
-        console.error('❌ CRITIEK: Geen Discord token gevonden in Railway variabelen.');
+        console.error('❌ CRITIEK: Geen Discord token gevonden.');
         process.exit(1);
       }
 
-      // 1. DATABASE CONNECTIE
-      try {
-        const dbInstance = await initializeDatabase();
-        this.db = dbInstance.db;
-        console.log('✅ Database succesvol verbonden.');
-      } catch (dbError) {
-        console.warn(`⚠️ Database melding: ${dbError.message}`);
-      }
+      // 1. STABIELE DATABASE CONNECTIE MET AUTO-RECONNECT
+      await this.connectDatabase();
 
-      // 2. KEEP-ALIVE SERVER
+      // 2. KEEP-ALIVE WEB SERVER
       this.startWebServer();
 
-      // 3. HANDMATIGE DIRECT COMMAND LOADER
+      // 3. COMMAND LOADER
       console.log('📂 Mappen scannen naar slash commando\'s...');
-      const commandsPath = path.join(__dirname, 'commands');
-      
+      let commandsPath = path.join(__dirname, 'commands');
+      if (!fs.existsSync(commandsPath)) {
+        commandsPath = path.join(__dirname, 'src', 'commands');
+      }
+      if (!fs.existsSync(commandsPath)) {
+        commandsPath = path.join(process.cwd(), 'src', 'commands');
+      }
+      if (!fs.existsSync(commandsPath)) {
+        commandsPath = path.join(process.cwd(), 'commands');
+      }
+
       if (fs.existsSync(commandsPath)) {
         const commandFolders = fs.readdirSync(commandsPath);
         
@@ -87,28 +91,29 @@ class TitanBot extends Client {
               const command = cmdModule.default || cmdModule;
               
               if (command && command.data && command.data.name) {
+                // Voorkom dubbel laden van exact hetzelfde commando
+                if (this.commands.has(command.data.name)) {
+                  console.warn(`   ⚠️  Dubbel commando overgeslagen: /${command.data.name}`);
+                  continue;
+                }
                 this.commands.set(command.data.name, command);
                 console.log(`   ➡️  Succesvol geladen: /${command.data.name}`);
-              } else {
-                console.warn(`   ⚠️  Mislukt: ${file} mist een geldige 'data' export.`);
               }
             } catch (cmdLoadErr) {
               console.error(`   ❌ FOUT in bestand ${folder}/${file}: ${cmdLoadErr.message}`);
             }
           }
         }
-      } else {
-        console.error('❌ FOUT: De map src/commands bestaat niet!');
       }
       
-      console.log(`🤖 Totaal geladen commando's in geheugen: ${this.commands.size}`);
+      console.log(`🤖 Totaal unieke commando's geladen in geheugen: ${this.commands.size}`);
 
       // 4. EVENTS INLADEN
       console.log('📅 Systeemevents inladen...');
       await this.loadEvents();
 
-      // 5. LOGIN & DYNAMISCHE REGISTRATIE
-      console.log('🔐 Aanmelden bij Discord gateway...');
+      // 5. LOGIN & DYNAMISCHE REGISTRATIE (MET LIMIET-BEWAKING)
+      console.log('🔐 Aanmelden bij Discord...');
       
       this.once('ready', async () => {
         console.log(`\n🟢 Bot is live! Ingelogd als: ${this.user.tag}`);
@@ -119,39 +124,55 @@ class TitanBot extends Client {
             return;
           }
 
-          const commandsData = this.commands.map(cmd => cmd.data.toJSON());
+          // Zet unieke commando's om naar JSON
+          const commandsData = [];
+          const uniqueNames = new Set();
 
-          // 1. GLOBALE REGISTRATIE (Altijd handig als back-up)
-          console.log('📡 Commando\'s globaal registreren bij Discord...');
+          for (const [name, cmd] of this.commands) {
+            if (uniqueNames.has(name)) continue;
+            uniqueNames.add(name);
+
+            try {
+              if (cmd.data && typeof cmd.data.toJSON === 'function') {
+                commandsData.push(cmd.data.toJSON());
+              } else if (cmd.data) {
+                commandsData.push(cmd.data);
+              }
+            } catch (jsonErr) {
+              console.error(`   ⚠️ Kon commando /${name} niet omvormen tot JSON: ${jsonErr.message}`);
+            }
+          }
+
+          // Check de Discord harde limiet van 100 commando's
+          if (commandsData.length > 100) {
+            console.error(`❌ CRITIEK: Je probeert ${commandsData.length} commando's te laden. Discord staat er maximaal 100 toe! Verwijder ongebruikte .js bestanden.`);
+            // Filter de lijst terug naar de eerste 100 om crash te voorkomen
+            commandsData.splice(100);
+          }
+
+          console.log(`📡 Registreren van ${commandsData.length} commando's bij Discord...`);
+
+          // Direct forceren op je NexSpace server voor instant resultaat
+          const targetGuildId = '1475577072381460521';
+          try {
+            await this.rest.put(
+              Routes.applicationGuildCommands(this.user.id, targetGuildId),
+              { body: commandsData }
+            );
+            console.log(`   ⚡ Direct live gezet op server ID: ${targetGuildId}`);
+          } catch (guildRegErr) {
+            console.error(`   ❌ Kon niet direct naar server pushen: ${guildRegErr.message}`);
+          }
+
+          // Globale registratie als back-up
           await this.rest.put(
             Routes.applicationCommands(this.user.id),
             { body: commandsData }
           );
 
-          // 2. DYNAMISCHE SERVER REGISTRATIE (Gegarandeerd direct live!)
-          // We gaan elke server af waar de bot nu in zit en registreren ze daar direct
-          console.log(`📡 Commando's direct forceren op alle actieve servers...`);
-          const guilds = this.guilds.cache;
-          
-          if (guilds.size === 0) {
-            console.warn('⚠️ De bot zit momenteel nog in 0 servers.');
-          } else {
-            for (const [guildId, guild] of guilds) {
-              try {
-                await this.rest.put(
-                  Routes.applicationGuildCommands(this.user.id, guildId),
-                  { body: commandsData }
-                );
-                console.log(`   ⚡ Direct gepusht naar server: ${guild.name} (${guildId})`);
-              } catch (guildRegErr) {
-                console.error(`   ❌ Kon niet pushen naar server ${guild.name}: ${guildRegErr.message}`);
-              }
-            }
-          }
-
-          console.log('🎉 [REGISTRATIE VOLTOOID] Al je commando\'s zijn nu direct live op je servers!');
+          console.log('🎉 [REGISTRATIE VOLTOOID] Alle commando\'s zijn succesvol verwerkt!');
         } catch (regErr) {
-          console.error(`❌ Algemene Discord REST fout: ${regErr.message}`);
+          console.error(`❌ Discord API weigerde registratie: ${regErr.message}`);
         }
       });
 
@@ -163,9 +184,44 @@ class TitanBot extends Client {
     }
   }
 
+  // Database verbinding met automatische herverbinding bij timeouts
+  async connectDatabase() {
+    console.log('🗄️ Verbinden met database...');
+    try {
+      const dbInstance = await initializeDatabase();
+      this.db = dbInstance.db;
+      console.log('✅ Database succesvol verbonden.');
+
+      // Vang database pool-fouten op om crashes te voorkomen
+      if (this.db && typeof this.db.on === 'function') {
+        this.db.on('error', async (err) => {
+          console.error('⚠️ [DATABASE FOUT] Verbinding verloren:', err.message);
+          if (err.message.includes('terminated unexpectedly') || err.message.includes('timeout')) {
+            console.log('🔄 Poging tot herstellen databaseverbinding...');
+            await this.connectDatabase().catch(() => null);
+          }
+        });
+      }
+    } catch (dbError) {
+      console.warn(`⚠️ Database herstart/verbindingsfout: ${dbError.message}`);
+      // Probeer na 10 seconden opnieuw bij een mislukte start
+      setTimeout(() => this.connectDatabase(), 10000);
+    }
+  }
+
   async loadEvents() {
     try {
-      const eventsPath = path.join(__dirname, 'events');
+      let eventsPath = path.join(__dirname, 'events');
+      if (!fs.existsSync(eventsPath)) {
+        eventsPath = path.join(__dirname, 'src', 'events');
+      }
+      if (!fs.existsSync(eventsPath)) {
+        eventsPath = path.join(process.cwd(), 'src', 'events');
+      }
+      if (!fs.existsSync(eventsPath)) {
+        eventsPath = path.join(process.cwd(), 'events');
+      }
+
       if (!fs.existsSync(eventsPath)) return;
 
       const eventFiles = fs.readdirSync(eventsPath).filter((file) => file.endsWith('.js'));
@@ -196,7 +252,16 @@ class TitanBot extends Client {
   startWebServer() {
     const app = express();
     app.get('/', (req, res) => res.status(200).send('🚀 TitanBot Keep-Alive is actief!'));
-    app.listen(PORT, () => console.log(`🌐 Webserver actief op poort ${PORT}`));
+    
+    const server = app.listen(PORT, () => {
+      console.log(`🌐 Webserver actief op poort ${PORT}`);
+    });
+
+    server.on('error', (err) => {
+      if (err.code !== 'EADDRINUSE') {
+        console.error('⚠️ Webserver fout:', err.message);
+      }
+    });
   }
 }
 
@@ -204,3 +269,5 @@ const bot = new TitanBot();
 process.on('unhandledRejection', (reason) => console.error('⚠️ [ANTI-CRASH] Onopgevangen fout:', reason));
 process.on('uncaughtException', (error) => console.error('⚠️ [ANTI-CRASH] Systeemfout:', error));
 bot.start();
+
+```
