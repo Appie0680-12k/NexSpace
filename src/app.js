@@ -5,7 +5,6 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
-  Routes,
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -83,38 +82,30 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      console.log('\n🚀 TitanBot herstart met Crash-Schild...\n');
+      console.log('\n🚀 TitanBot herstart op de meest stabiele manier...\n');
 
       if (!CLEAN_TOKEN) {
-        console.error('❌ Geen Discord token gevonden in Railway.');
+        console.error('❌ Geen Discord token gevonden in Railway variabelen.');
         process.exit(1);
       }
 
       /* =========================
-         DATABASE (CRASH-VRIJ)
+         DATABASE (FAIL-SAFE)
       ========================= */
 
       console.log('🗄️ Verbinden met database...');
       try {
-        const dbInstance = await initializeDatabase().catch(err => {
-          console.error('⚠️ Database kon niet direct verbinden: ' + err.message);
+        const dbInstance = await initializeDatabase().catch((dbErr) => {
+          console.error('⚠️ Database kon niet direct verbinden, we gaan door zonder db: ' + dbErr.message);
           return null;
         });
 
         if (dbInstance && dbInstance.db) {
           this.db = dbInstance.db;
           console.log('✅ Database verbinding succesvol.');
-
-          if (typeof this.db.on === 'function') {
-            this.db.on('error', (err) => {
-              console.error('⚠️ [DATABASE FOUT] Verbinding verbroken: ' + err.message);
-            });
-          }
-        } else {
-          console.warn('⚠️ Bot start op ZONDER actieve databaseverbinding.');
         }
       } catch (dbError) {
-        console.error('⚠️ Database fout opgevangen: ' + dbError.message);
+        console.error('⚠️ databasefout opgevangen: ' + dbError.message);
       }
 
       /* =========================
@@ -130,20 +121,20 @@ class TitanBot extends Client {
       console.log('📂 Commands laden...');
       try {
         await loadCommands(this);
-        console.log('✅ ' + this.commands.size + ' commands geladen.');
+        console.log('✅ ' + this.commands.size + ' commands succesvol ingeladen.');
       } catch (commandError) {
-        console.error('❌ Commands fout tijdens inladen: ' + commandError.message);
+        console.error('❌ Fout bij laden commands: ' + commandError.message);
       }
 
       /* =========================
-         EVENTS LADEN
+         EVENTS
       ========================= */
 
       console.log('📅 Events laden...');
       await this.loadEvents();
 
       /* =========================
-         LOGIN & DIRECTE REGISTRATIE
+         LOGIN & SYNCHRONISATIE
       ========================= */
 
       console.log('🔐 Inloggen bij Discord...');
@@ -152,27 +143,13 @@ class TitanBot extends Client {
         console.log('✅ Bot online als ' + this.user.tag);
         
         try {
-          console.log('⚡ Slash commands synchroniseren...');
+          console.log('⚡ Slash commando\'s registreren bij Discord...');
           const targetGuildId = '1475577072381460521';
           
-          // Knip de commando's af als je over de 100 heen gaat om Discord crashes te weigeren
-          if (this.commands.size > 95) {
-            console.warn('🚨 WAARSCHUWING: Te veel commando\'s geladen! Limiet is 100.');
-            const prunedCommands = new Collection();
-            let count = 0;
-            for (const [key, value] of this.commands) {
-              if (count < 95) {
-                prunedCommands.set(key, value);
-                count++;
-              }
-            }
-            this.commands = prunedCommands;
-          }
-
           await registerSlashCommands(this, targetGuildId);
-          console.log('✅ Slash commands succesvol geregistreerd voor server: ' + targetGuildId);
+          console.log('✅ Registratieproces afgerond.');
         } catch (registerError) {
-          console.error('⚠️ Slash command registratie fout (Opgevangen): ' + registerError.message);
+          console.error('⚠️ Registratiefout gedempt: ' + registerError.message);
         }
       });
 
@@ -236,35 +213,27 @@ class TitanBot extends Client {
     const app = express();
 
     app.get('/', (req, res) => {
-      res.status(200).send('🚀 TitanBot Status: Operationeel en 24/7 Online via Keep-Alive!');
-    });
-
-    app.get('/health', (req, res) => {
-      res.status(200).json({
-        status: 'online',
-        bot: this.user?.tag || 'opstarten...',
-        uptime: Math.floor(process.uptime() / 60) + ' minuten'
-      });
+      res.status(200).send('🚀 TitanBot Status: Operationeel!');
     });
 
     app.listen(PORT, () => {
-      console.log('🌐 Geavanceerde Keep-Alive Webserver actief op poort ' + PORT);
+      console.log('🌐 Webserver actief op poort ' + PORT);
     });
   }
 }
 
 /* =========================================================
-   CREATE BOT & CRASH SHIELD
+   CREATE BOT & CRASH SHIELD (Voorkomt crashes door database timeouts!)
 ========================================================= */
 
 const bot = new TitanBot();
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🛡️ [CRASH-SCHILD] Onopgevangen fout (Unhandled Promise Rejection) gedempt:', reason);
+process.on('unhandledRejection', (reason) => {
+  console.error('🛡️ [CRASH PROTECTION] Onopgevangen fout gedempt:', reason);
 });
 
-process.on('uncaughtException', (error, origin) => {
-  console.error('🛡️ [CRASH-SCHILD] Kritieke systeemfout opgevangen & genegeerd:', error);
+process.on('uncaughtException', (error) => {
+  console.error('🛡️ [CRASH PROTECTION] Systeemfout genegeerd:', error.message);
 });
 
 bot.start();
