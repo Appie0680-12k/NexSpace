@@ -82,10 +82,10 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      console.log('\n🚀 TitanBot herstart op de meest stabiele manier...\n');
+      console.log('\n🚀 [TITAN] Startprocedure geactiveerd...\n');
 
       if (!CLEAN_TOKEN) {
-        console.error('❌ Geen Discord token gevonden in Railway variabelen.');
+        console.error('❌ [CONFIG] Geen Discord token gevonden in Railway variabelen.');
         process.exit(1);
       }
 
@@ -93,19 +93,19 @@ class TitanBot extends Client {
          DATABASE (FAIL-SAFE)
       ========================= */
 
-      console.log('🗄️ Verbinden met database...');
+      console.log('🗄️ [DATABASE] Verbinden...');
       try {
         const dbInstance = await initializeDatabase().catch((dbErr) => {
-          console.error('⚠️ Database kon niet direct verbinden, we gaan door zonder db: ' + dbErr.message);
+          console.error('⚠️ [DATABASE] Directe verbinding mislukt, we gaan door: ' + dbErr.message);
           return null;
         });
 
         if (dbInstance && dbInstance.db) {
           this.db = dbInstance.db;
-          console.log('✅ Database verbinding succesvol.');
+          console.log('✅ [DATABASE] Verbinding succesvol tot stand gebracht.');
         }
       } catch (dbError) {
-        console.error('⚠️ databasefout opgevangen: ' + dbError.message);
+        console.error('⚠️ [DATABASE] Onverwachte fout opgevangen: ' + dbError.message);
       }
 
       /* =========================
@@ -118,45 +118,45 @@ class TitanBot extends Client {
          COMMANDS LADEN
       ========================= */
 
-      console.log('📂 Commands laden...');
+      console.log('📂 [COMMANDS] Laden...');
       try {
         await loadCommands(this);
-        console.log('✅ ' + this.commands.size + ' commands succesvol ingeladen.');
+        console.log('✅ [COMMANDS] ' + this.commands.size + ' commando\'s succesvol geladen.');
       } catch (commandError) {
-        console.error('❌ Fout bij laden commands: ' + commandError.message);
+        console.error('❌ [COMMANDS] Fout bij inladen: ' + commandError.message);
       }
 
       /* =========================
          EVENTS
       ========================= */
 
-      console.log('📅 Events laden...');
+      console.log('📅 [EVENTS] Laden...');
       await this.loadEvents();
 
       /* =========================
          LOGIN & SYNCHRONISATIE
       ========================= */
 
-      console.log('🔐 Inloggen bij Discord...');
+      console.log('🔐 [GATEWAY] Inloggen bij Discord...');
 
       this.once('ready', async () => {
-        console.log('✅ Bot online als ' + this.user.tag);
+        console.log('🟢 [READY] Bot is succesvol online als ' + this.user.tag);
         
         try {
-          console.log('⚡ Slash commando\'s registreren bij Discord...');
+          console.log('⚡ [DISCORD] Slash commando\'s synchroniseren...');
           const targetGuildId = '1475577072381460521';
           
           await registerSlashCommands(this, targetGuildId);
-          console.log('✅ Registratieproces afgerond.');
+          console.log('✅ [DISCORD] Registratieproces succesvol afgerond.');
         } catch (registerError) {
-          console.error('⚠️ Registratiefout gedempt: ' + registerError.message);
+          console.error('⚠️ [DISCORD] Registratiefout opgevangen: ' + registerError.message);
         }
       });
 
       await this.login(CLEAN_TOKEN);
 
     } catch (err) {
-      console.error('❌ Kritieke startup fout: ' + err.message);
+      console.error('❌ [FATAL] Systeem kon niet starten: ' + err.message);
       process.exit(1);
     }
   }
@@ -172,7 +172,7 @@ class TitanBot extends Client {
         : path.join(__dirname, 'src', 'events');
 
       if (!fs.existsSync(eventsPath)) {
-        console.warn('⚠️ Geen events map gevonden.');
+        console.warn('⚠️ [EVENTS] Map niet gevonden.');
         return;
       }
 
@@ -196,12 +196,12 @@ class TitanBot extends Client {
 
           this.events.set(event.name, event);
         } catch (eventError) {
-          console.error('❌ Event fout (' + file + '): ' + eventError.message);
+          console.error('❌ [EVENTS] Fout bij laden van ' + file + ': ' + eventError.message);
         }
       }
-      console.log('🎉 ' + this.events.size + ' events geladen.');
+      console.log('🎉 [EVENTS] ' + this.events.size + ' events operationeel.');
     } catch (err) {
-      console.error('❌ Events loader fout: ' + err.message);
+      console.error('❌ [EVENTS] Fout in loader: ' + err.message);
     }
   }
 
@@ -217,19 +217,20 @@ class TitanBot extends Client {
     });
 
     app.listen(PORT, () => {
-      console.log('🌐 Webserver actief op poort ' + PORT);
+      console.log('🌐 [WEB] Status webserver actief op poort ' + PORT);
     });
   }
 }
 
 /* =========================================================
-   CREATE BOT & CRASH SHIELD (Voorkomt crashes door database timeouts!)
+   CREATE BOT & CRASH SHIELD
 ========================================================= */
 
 const bot = new TitanBot();
 
+// Dit vangt ALLES op zodat Railway de bot nooit meer afsluit!
 process.on('unhandledRejection', (reason) => {
-  console.error('🛡️ [CRASH PROTECTION] Onopgevangen fout gedempt:', reason);
+  console.error('🛡️ [CRASH PROTECTION] Belangrijke fout gedempt:', reason);
 });
 
 process.on('uncaughtException', (error) => {
