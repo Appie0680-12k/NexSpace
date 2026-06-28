@@ -1,3 +1,5 @@
+```javascript
+// --- CRASH SHIELD DIRECT BOVENAAN (STOPT ELKE RUNTIME CRASH) ---
 process.on('uncaughtException', (error) => {
   console.error('🛡️ [CRASH PROTECTION] Systeemfout opgevangen & gedemd: ' + error.message);
 });
@@ -20,8 +22,6 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-
-import { initializeDatabase } from './utils/database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,15 +69,20 @@ class TitanBot extends Client {
         process.exit(1);
       }
 
+      // Start de webserver direct (voorkomt dat Railway klaagt over poorten)
       this.startWebServer();
 
+      // 1. DYNAMISCHE DATABASE VERBINDING (Als database.js kapot is, crasht de bot NIET!)
       console.log('🗄️ [DATABASE] Verbinden...');
       try {
+        const dbModulePath = pathToFileURL(path.join(__dirname, 'utils', 'database.js')).href;
+        const { initializeDatabase } = await import(dbModulePath);
+        
         const dbInstance = await Promise.race([
           initializeDatabase(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Connectie duurde te lang')), 5000))
         ]).catch((dbErr) => {
-          console.error('⚠️ [DATABASE] Connectie mislukt of time-out, we gaan offline door: ' + dbErr.message);
+          console.error('⚠️ [DATABASE] Connectie mislukt of time-out: ' + dbErr.message);
           return null;
         });
 
@@ -92,16 +97,19 @@ class TitanBot extends Client {
           }
         }
       } catch (dbError) {
-        console.error('⚠️ [DATABASE] Onverwachte fout tijdens start: ' + dbError.message);
+        console.error('⚠️ [DATABASE] database.js is corrupt of onbereikbaar. Bot start offline door: ' + dbError.message);
       }
 
+      // 2. COMMANDS LADEN
       console.log('📂 [COMMANDS] Laden uit de mappen...');
       await this.internalLoadCommands();
       console.log('✅ [COMMANDS] ' + this.commands.size + ' commando\'s succesvol ingeladen.');
 
+      // 3. EVENTS LADEN
       console.log('📅 [EVENTS] Laden...');
       await this.loadEvents();
 
+      // 4. LOGIN BIJ DISCORD
       console.log('🔐 [GATEWAY] Inloggen...');
       this.once('ready', async () => {
         console.log('🟢 [READY] Bot succesvol online als ' + this.user.tag);
