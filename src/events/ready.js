@@ -1,4 +1,5 @@
-import { Events, EmbedBuilder, ActivityType, Routes } from 'discord.js';
+```javascript
+import { Events, EmbedBuilder, ActivityType } from 'discord.js';
 
 // De nieuwsbronnen op de achtergrond
 const WORLD_NEWS_URL = 'https://feeds.nos.nl/nosnieuwsalgemeen';
@@ -23,10 +24,14 @@ const sentWorldArticles = new Set();
 const sentFinanceArticles = new Set();
 let liveMessage = null;
 
-// Ingebouwde XML parser met extra headers tegen blokkades
+// Ingebouwde XML parser met extra headers tegen blokkades (Crash-veilig)
 async function fetchRssFeed(url) {
     try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
+        const response = await fetch(url, { 
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(5000) // Timeout na 5 seconden om haperen te voorkomen
+        }).catch(() => null);
+
         if (!response || !response.ok) return null;
 
         const text = await response.text().catch(() => '');
@@ -44,7 +49,13 @@ async function fetchRssFeed(url) {
             const pubDate = item.match(/<pubDate>(.*?)<\/pubDate>/)?.[1];
 
             if (title && link) {
-                parsedItems.push({ title, link, contentSnippet: description || '', guid, pubDate });
+                parsedItems.push({ 
+                    title: title.trim(), 
+                    link: link.trim(), 
+                    contentSnippet: description ? description.trim() : '', 
+                    guid: guid ? guid.trim() : link.trim(), 
+                    pubDate 
+                });
             }
         }
         return { items: parsedItems };
@@ -54,7 +65,9 @@ async function fetchRssFeed(url) {
 }
 
 function isBelangrijkNieuws(title, description) {
-    const volledigeTekst = `${title.toLowerCase()} ${description.toLowerCase()}`;
+    if (!title) return false;
+    const desc = description || '';
+    const volledigeTekst = (title + ' ' + desc).toLowerCase();
     return FILTER_KEYWORDS.some(keyword => volledigeTekst.includes(keyword));
 }
 
@@ -63,31 +76,17 @@ export default {
     once: true,
 
     async execute(client) {
-        console.log(`🤖 ${client.user.tag} is nu succesvol online via src/events/ready.js!`);
+        console.log(`🟢 [READY] ${client.user.tag} is nu succesvol online via ready.js!`);
         
-        // --- ⚡ GEFORCEERDE GLOBAL SLASH COMMAND REGISTRATIE ---
-        try {
-            console.log('⚡ Slash commands wereldwijd (globaal) registreren via ready event...');
-            if (client.commands && client.commands.size > 0) {
-                const commandsData = client.commands.map(cmd => cmd.data.toJSON());
-                
-                await client.rest.put(
-                    Routes.applicationCommands(client.user.id),
-                    { body: commandsData }
-                );
-                console.log(`✅ Succes! ${client.commands.size} slash commando's succesvol gepusht naar Discord.`);
-            } else {
-                console.warn('⚠️ Waarschuwing: Er zijn 0 commando\'s gevonden in de bot collectie om te registreresn.');
-            }
-        } catch (registerError) {
-            console.error(`❌ Fout tijdens globale registratie in ready.js: ${registerError.message}`);
-        }
-
         // Status instellen
-        client.user.setPresence({
-            activities: [{ name: 'Gemaakt door Appie0680', type: ActivityType.Listening }],
-            status: 'online'
-        });
+        try {
+            client.user.setPresence({
+                activities: [{ name: 'Gemaakt door Appie0680', type: ActivityType.Listening }],
+                status: 'online'
+            });
+        } catch (err) {
+            console.error('⚠️ Kon status niet instellen:', err.message);
+        }
 
         // ==========================================================
         // SYSTEEM 1: WERELDNIEUWS (GEFILTERD)
@@ -183,8 +182,15 @@ export default {
             try {
                 let marketDescription = '**🪙 CRYPTO MARKETS**\n';
                 try {
-                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
-                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
+                    const btcRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { 
+                        headers: { 'User-Agent': 'Mozilla/5.0' },
+                        signal: AbortSignal.timeout(3000)
+                    }).catch(() => null);
+                    
+                    const ethRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT', { 
+                        headers: { 'User-Agent': 'Mozilla/5.0' },
+                        signal: AbortSignal.timeout(3000)
+                    }).catch(() => null);
 
                     if (btcRes && ethRes && btcRes.ok && ethRes.ok) {
                         const btcData = await btcRes.json().catch(() => null);
@@ -231,15 +237,17 @@ export default {
             }
         }
 
-        // BIJ OPSTARTEN (Start nu na 2 seconden om rust te geven aan registratie)
+        // BIJ OPSTARTEN (Wacht 5 seconden na start)
         setTimeout(() => {
-            checkWorldNews();
-            checkFinanceNews();
-            updateMarkets();
+            checkWorldNews().catch(() => null);
+            checkFinanceNews().catch(() => null);
+            updateMarkets().catch(() => null);
 
-            setInterval(checkWorldNews, 120000);
-            setInterval(checkFinanceNews, 120000);
-            setInterval(updateMarkets, 180000);
-        }, 2000);
+            setInterval(() => checkWorldNews().catch(() => null), 120000);
+            setInterval(() => checkFinanceNews().catch(() => null), 120000);
+            setInterval(() => updateMarkets().catch(() => null), 180000);
+        }, 5000);
     }
 };
+
+```
