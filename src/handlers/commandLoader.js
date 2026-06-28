@@ -21,7 +21,7 @@ export async function loadCommands(client) {
     }
 
     if (!fs.existsSync(commandsPath)) {
-        console.error('❌ [COMMAND LOADER] Commands directory niet gevonden!');
+        console.error('❌ [COMMAND LOADER] Commands directory niet gevonden op schijf!');
         return;
     }
 
@@ -31,8 +31,13 @@ export async function loadCommands(client) {
         for (const folder of commandFolders) {
             const folderPath = path.join(commandsPath, folder);
             
-            // Sla corrupte of vreemde bestanden in de hoofdmap over
-            if (!fs.statSync(folderPath).isDirectory()) continue;
+            // Controleer of het wel echt een map is en geen los bestand
+            try {
+                const stat = fs.statSync(folderPath);
+                if (!stat.isDirectory()) continue;
+            } catch (e) {
+                continue;
+            }
 
             const commandFiles = fs.readdirSync(folderPath).filter(file => file.endsWith('.js'));
 
@@ -47,23 +52,27 @@ export async function loadCommands(client) {
                         if (client.commands.has(command.data.name)) continue;
                         
                         client.commands.set(command.data.name, command);
+                        console.log(`   ➡️  Succesvol geladen in geheugen: /${command.data.name}`);
                     }
                 } catch (fileError) {
-                    console.error('⚠️ [LOADER] Fout in bestand ' + file + ': ' + fileError.message);
+                    console.error('⚠️ [LOADER] Fout bij laden van commando ' + file + ': ' + fileError.message);
                 }
             }
         }
     } catch (dirError) {
-        console.error('❌ [LOADER] Algemene scanfout: ' + dirError.message);
+        console.error('❌ [LOADER] Algemene scan error: ' + dirError.message);
     }
 }
 
 /**
- * Registreert de geladen commando's bij Discord met een harde limiet-beveiliging.
+ * Registreert de geladen commando's bij Discord.
  */
 export async function registerCommands(client, guildId) {
     try {
-        if (!client.commands || client.commands.size === 0) return;
+        if (!client.commands || client.commands.size === 0) {
+            console.warn('⚠️ [REST] Geen commando\'s in geheugen om te registreren.');
+            return;
+        }
 
         const commandsData = [];
         const uniqueNames = new Set();
@@ -78,35 +87,37 @@ export async function registerCommands(client, guildId) {
                 } else if (cmd.data) {
                     commandsData.push(cmd.data);
                 }
-            } catch (jsonErr) {}
+            } catch (jsonErr) {
+                console.error('⚠️ [REST] Kon commando /' + name + ' niet converteren: ' + jsonErr.message);
+            }
         }
 
-        // --- DISCORD LIMIET BEWAKING (Max 95 stuks) ---
+        // Maximale Discord limietbescherming
         if (commandsData.length > 95) {
-            console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ') gedetecteerd! Teruggebracht naar 95 voor Discord-stabiliteit.');
+            console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ')! Afgeplat op 95 stuks.');
             commandsData.splice(95);
         }
 
         const rest = new REST({ version: '10' }).setToken(client.token);
 
-        console.log('📡 [REST] Bezig met registreren van ' + commandsData.length + ' commando\'s...');
+        console.log('📡 [REST] Bezig met registreren van ' + commandsData.length + ' slash commando\'s...');
 
         if (guildId) {
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guildId),
                 { body: commandsData }
             );
-            console.log('✅ [REST] Commando\'s direct geactiveerd op server: ' + guildId);
+            console.log('✅ [REST] Commando\'s succesvol live gezet op server: ' + guildId);
         } else {
             await rest.put(
                 Routes.applicationCommands(client.user.id),
                 { body: commandsData }
             );
-            console.log('✅ [REST] Commando\'s globaal geregistreerd.');
+            console.log('✅ [REST] Commando\'s globaal geregistreerd bij Discord.');
         }
 
     } catch (error) {
-        console.error('❌ [REST] Discord API weigerde registratie: ' + error.message);
+        console.error('❌ [REST] Discord API fout tijdens push: ' + error.message);
     }
 }
 
