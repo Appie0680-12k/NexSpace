@@ -1,4 +1,3 @@
-```javascript
 process.on('uncaughtException', (error) => {
   console.error('🛡️ [CRASH PROTECTION] Systeemfout opgevangen & gedemd: ' + error.message);
 });
