@@ -21,7 +21,7 @@ export async function loadCommands(client) {
     }
 
     if (!fs.existsSync(commandsPath)) {
-        console.error('❌ [COMMAND LOADER] Commands directory niet gevonden op schijf!');
+        console.error('❌ [COMMAND LOADER] Map niet gevonden!');
         return;
     }
 
@@ -31,7 +31,6 @@ export async function loadCommands(client) {
         for (const folder of commandFolders) {
             const folderPath = path.join(commandsPath, folder);
             
-            // Controleer of het wel echt een map is en geen los bestand
             try {
                 const stat = fs.statSync(folderPath);
                 if (!stat.isDirectory()) continue;
@@ -52,15 +51,15 @@ export async function loadCommands(client) {
                         if (client.commands.has(command.data.name)) continue;
                         
                         client.commands.set(command.data.name, command);
-                        console.log(`   ➡️  Succesvol geladen in geheugen: /${command.data.name}`);
+                        console.log(`   ➡️  Succesvol geladen: /${command.data.name}`);
                     }
                 } catch (fileError) {
-                    console.error('⚠️ [LOADER] Fout bij laden van commando ' + file + ': ' + fileError.message);
+                    console.error('⚠️ [LOADER] Fout in commando-bestand ' + file + ': ' + fileError.message);
                 }
             }
         }
     } catch (dirError) {
-        console.error('❌ [LOADER] Algemene scan error: ' + dirError.message);
+        console.error('❌ [LOADER] Algemene scanfout: ' + dirError.message);
     }
 }
 
@@ -70,7 +69,7 @@ export async function loadCommands(client) {
 export async function registerCommands(client, guildId) {
     try {
         if (!client.commands || client.commands.size === 0) {
-            console.warn('⚠️ [REST] Geen commando\'s in geheugen om te registreren.');
+            console.warn('⚠️ [REST] Geen commando\'s gevonden om te registreren.');
             return;
         }
 
@@ -87,37 +86,35 @@ export async function registerCommands(client, guildId) {
                 } else if (cmd.data) {
                     commandsData.push(cmd.data);
                 }
-            } catch (jsonErr) {
-                console.error('⚠️ [REST] Kon commando /' + name + ' niet converteren: ' + jsonErr.message);
-            }
+            } catch (jsonErr) {}
         }
 
-        // Maximale Discord limietbescherming
+        // --- DISCORD LIMIET BEWAKING (Max 95 stuks) ---
         if (commandsData.length > 95) {
-            console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ')! Afgeplat op 95 stuks.');
+            console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ')! Afgeplat naar 95.');
             commandsData.splice(95);
         }
 
         const rest = new REST({ version: '10' }).setToken(client.token);
 
-        console.log('📡 [REST] Bezig met registreren van ' + commandsData.length + ' slash commando\'s...');
+        console.log('📡 [REST] Bezig met registreren van ' + commandsData.length + ' commando\'s...');
 
         if (guildId) {
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guildId),
                 { body: commandsData }
             );
-            console.log('✅ [REST] Commando\'s succesvol live gezet op server: ' + guildId);
+            console.log('✅ [REST] Commando\'s direct geactiveerd op server: ' + guildId);
         } else {
             await rest.put(
                 Routes.applicationCommands(client.user.id),
                 { body: commandsData }
             );
-            console.log('✅ [REST] Commando\'s globaal geregistreerd bij Discord.');
+            console.log('✅ [REST] Commando\'s globaal geregistreerd.');
         }
 
     } catch (error) {
-        console.error('❌ [REST] Discord API fout tijdens push: ' + error.message);
+        console.error('❌ [REST] Discord API weigerde registratie: ' + error.message);
     }
 }
 
