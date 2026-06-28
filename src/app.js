@@ -1,7 +1,7 @@
 ```javascript
 // --- CRASH SHIELD DIRECT BOVENAAN (STOPT ELKE RUNTIME CRASH!) ---
 process.on('uncaughtException', (error) => {
-  console.error('🛡️ [CRASH PROTECTION] Runtime systeemfout gedempt: ' + error.message);
+  console.error('🛡️ [CRASH PROTECTION] Systeemfout opgevangen & gedemd: ' + error.message);
 });
 
 process.on('unhandledRejection', (reason) => {
@@ -14,6 +14,7 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
+  Routes, // Toegevoegd voor de interne registratie van commando's
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -23,10 +24,6 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 import { initializeDatabase } from './utils/database.js';
-import {
-  loadCommands,
-  registerCommands as registerSlashCommands,
-} from './handlers/commandLoader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,9 +62,13 @@ class TitanBot extends Client {
     this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
   }
 
+  /* =========================================================
+     START BOT
+  ========================================================= */
+
   async start() {
     try {
-      console.log('🚀 [TITAN] Startprocedure geactiveerd...');
+      console.log('🚀 [TITAN] Zelfstandige startprocedure geactiveerd...');
 
       if (!CLEAN_TOKEN) {
         console.error('❌ [CONFIG] Geen token gevonden in Railway variabelen.');
@@ -102,14 +103,10 @@ class TitanBot extends Client {
         console.error('⚠️ [DATABASE] Onverwachte fout tijdens start: ' + dbError.message);
       }
 
-      // 3. COMMANDS INLADEN
-      console.log('📂 [COMMANDS] Laden...');
-      try {
-        await loadCommands(this);
-        console.log('✅ [COMMANDS] ' + this.commands.size + ' commando\'s ingeladen.');
-      } catch (commandError) {
-        console.error('❌ [COMMANDS] Fout tijdens laden: ' + commandError.message);
-      }
+      // 3. INTERNAL COMMANDS INLADEN (Zonder aparte commandLoader.js!)
+      console.log('📂 [COMMANDS] Laden uit de mappen...');
+      await this.internalLoadCommands();
+      console.log('✅ [COMMANDS] ' + this.commands.size + ' commando\'s succesvol ingeladen.');
 
       // 4. EVENTS INLADEN
       console.log('📅 [EVENTS] Laden...');
@@ -123,7 +120,7 @@ class TitanBot extends Client {
         try {
           console.log('⚡ [DISCORD] Commando\'s synchroniseren...');
           const targetGuildId = '1475577072381460521';
-          await registerSlashCommands(this, targetGuildId);
+          await this.internalRegisterCommands(targetGuildId);
           console.log('✅ [DISCORD] Synchronisatie voltooid.');
         } catch (registerError) {
           console.error('⚠️ [DISCORD] Fout bij slash command sync: ' + registerError.message);
@@ -137,6 +134,127 @@ class TitanBot extends Client {
       process.exit(1);
     }
   }
+
+  /* =========================================================
+     INTERNAL COMMAND LOADER LOGIC
+  ========================================================= */
+
+  async internalLoadCommands() {
+    let commandsPath = path.join(__dirname, 'commands');
+    
+    // Check alle mogelijke map-locaties op Railway
+    if (!fs.existsSync(commandsPath)) {
+      commandsPath = path.join(__dirname, 'src', 'commands');
+    }
+    if (!fs.existsSync(commandsPath)) {
+      commandsPath = path.join(process.cwd(), 'src', 'commands');
+    }
+    if (!fs.existsSync(commandsPath)) {
+      commandsPath = path.join(process.cwd(), 'commands');
+    }
+
+    if (!fs.existsSync(commandsPath)) {
+      console.error('❌ [COMMANDS] Map met commando\'s kon nergens worden gevonden!');
+      return;
+    }
+
+    try {
+      const commandFolders = fs.readdirSync(commandsPath);
+
+      for (const folder of commandFolders) {
+        const folderPath = path.join(commandsPath, folder);
+        
+        try {
+          const stat = fs.statSync(folderPath);
+          if (!stat.isDirectory()) continue;
+        } catch (e) {
+          continue;
+        }
+
+        const commandFiles = fs.readdirSync(folderPath).filter(file => file.endsWith('.js'));
+
+        for (const file of commandFiles) {
+          const filePath = path.join(folderPath, file);
+          
+          try {
+            const cmdModule = await import(pathToFileURL(filePath).href);
+            const command = cmdModule.default || cmdModule;
+
+            if (command && command.data && command.data.name) {
+              if (this.commands.has(command.data.name)) continue;
+              
+              this.commands.set(command.data.name, command);
+              console.log('   ➡️  Succesvol geladen: /' + command.data.name);
+            }
+          } catch (fileError) {
+            console.error('⚠️ [LOADER] Fout in bestand ' + folder + '/' + file + ': ' + fileError.message);
+          }
+        }
+      }
+    } catch (dirError) {
+      console.error('❌ [LOADER] Scanfout commands map: ' + dirError.message);
+    }
+  }
+
+  /* =========================================================
+     INTERNAL COMMAND REGISTRATION LOGIC
+  ========================================================= */
+
+  async internalRegisterCommands(guildId) {
+    try {
+      if (this.commands.size === 0) {
+        console.warn('⚠️ [REST] Geen commando\'s geladen om te registreren.');
+        return;
+      }
+
+      const commandsData = [];
+      const uniqueNames = new Set();
+
+      for (const [name, cmd] of this.commands) {
+        if (uniqueNames.has(name)) continue;
+        uniqueNames.add(name);
+
+        try {
+          if (cmd.data && typeof cmd.data.toJSON === 'function') {
+            commandsData.push(cmd.data.toJSON());
+          } else if (cmd.data) {
+            commandsData.push(cmd.data);
+          }
+        } catch (jsonErr) {
+          console.error('⚠️ [REST] Fout bij converteren /' + name + ': ' + jsonErr.message);
+        }
+      }
+
+      // Bewaak de 100-commando limiet van Discord (maximaal 95 voor de veiligheid)
+      if (commandsData.length > 95) {
+        console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ')! Afgesneden op 95 stuks.');
+        commandsData.splice(95);
+      }
+
+      console.log('📡 [REST] Bezig met registreren van ' + commandsData.length + ' commando\'s...');
+
+      if (guildId) {
+        await this.rest.put(
+          Routes.applicationGuildCommands(this.user.id, guildId),
+          { body: commandsData }
+        );
+        console.log('✅ [REST] Commando\'s direct geactiveerd op server: ' + guildId);
+      } else {
+        await this.rest.put(
+          Routes.applicationCommands(this.user.id),
+          { body: commandsData }
+        );
+        console.log('✅ [REST] Commando\'s globaal geregistreerd bij Discord.');
+      }
+
+    } catch (error) {
+      console.error('❌ [REST] Discord REST fout: ' + error.message);
+    }
+  }
+
+  /* =========================================================
+     LOAD EVENTS
+  ========================================================= */
 
   async loadEvents() {
     try {
@@ -175,6 +293,10 @@ class TitanBot extends Client {
       console.error('❌ [EVENTS] Fout in loader: ' + err.message);
     }
   }
+
+  /* =========================================================
+     WEB SERVER
+  ========================================================= */
 
   startWebServer() {
     try {
