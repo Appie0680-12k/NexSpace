@@ -189,9 +189,13 @@ class TitanBot extends Client {
           if (!event?.name || !event?.execute) continue;
 
           if (event.once) {
-            this.once(event.name, (...args) => event.execute(...args, this));
+            this.once(event.name, (...args) =>
+              event.execute(...args, this)
+            );
           } else {
-            this.on(event.name, (...args) => event.execute(...args, this));
+            this.on(event.name, (...args) =>
+              event.execute(...args, this)
+            );
           }
 
           this.events.set(event.name, event);
@@ -199,7 +203,7 @@ class TitanBot extends Client {
           console.error('❌ [EVENTS] Fout bij laden van ' + file + ': ' + eventError.message);
         }
       }
-      console.log('🎉 [EVENTS] ' + this.events.size + ' events operationeel.');
+      console.log('🎉 [EVENTS] ' + this.events.size + ' events geladen.');
     } catch (err) {
       console.error('❌ [EVENTS] Fout in loader: ' + err.message);
     }
@@ -228,7 +232,6 @@ class TitanBot extends Client {
 
 const bot = new TitanBot();
 
-// Dit vangt ALLES op zodat Railway de bot nooit meer afsluit!
 process.on('unhandledRejection', (reason) => {
   console.error('🛡️ [CRASH PROTECTION] Belangrijke fout gedempt:', reason);
 });
