@@ -1,5 +1,4 @@
 ```javascript
-// --- CRASH SHIELD DIRECT BOVENAAN (STOPT ELKE RUNTIME CRASH!) ---
 process.on('uncaughtException', (error) => {
   console.error('🛡️ [CRASH PROTECTION] Systeemfout opgevangen & gedemd: ' + error.message);
 });
@@ -14,7 +13,7 @@ import {
   Collection,
   GatewayIntentBits,
   Partials,
-  Routes, // Toegevoegd voor de interne registratie van commando's
+  Routes,
 } from 'discord.js';
 
 import { REST } from '@discordjs/rest';
@@ -62,10 +61,6 @@ class TitanBot extends Client {
     this.rest = new REST({ version: '10' }).setToken(CLEAN_TOKEN);
   }
 
-  /* =========================================================
-     START BOT
-  ========================================================= */
-
   async start() {
     try {
       console.log('🚀 [TITAN] Zelfstandige startprocedure geactiveerd...');
@@ -75,10 +70,8 @@ class TitanBot extends Client {
         process.exit(1);
       }
 
-      // 1. WEB SERVER DIRECT OPSTARTEN (Zodat Railway de poort open ziet staan)
       this.startWebServer();
 
-      // 2. DATABASE CONNECTIE (FAIL-SAFE - HANGT NOOIT MEER OP!)
       console.log('🗄️ [DATABASE] Verbinden...');
       try {
         const dbInstance = await Promise.race([
@@ -103,16 +96,13 @@ class TitanBot extends Client {
         console.error('⚠️ [DATABASE] Onverwachte fout tijdens start: ' + dbError.message);
       }
 
-      // 3. INTERNAL COMMANDS INLADEN (Zonder aparte commandLoader.js!)
       console.log('📂 [COMMANDS] Laden uit de mappen...');
       await this.internalLoadCommands();
       console.log('✅ [COMMANDS] ' + this.commands.size + ' commando\'s succesvol ingeladen.');
 
-      // 4. EVENTS INLADEN
       console.log('📅 [EVENTS] Laden...');
       await this.loadEvents();
 
-      // 5. LOGIN BIJ DISCORD
       console.log('🔐 [GATEWAY] Inloggen...');
       this.once('ready', async () => {
         console.log('🟢 [READY] Bot succesvol online als ' + this.user.tag);
@@ -135,14 +125,9 @@ class TitanBot extends Client {
     }
   }
 
-  /* =========================================================
-     INTERNAL COMMAND LOADER LOGIC
-  ========================================================= */
-
   async internalLoadCommands() {
     let commandsPath = path.join(__dirname, 'commands');
     
-    // Check alle mogelijke map-locaties op Railway
     if (!fs.existsSync(commandsPath)) {
       commandsPath = path.join(__dirname, 'src', 'commands');
     }
@@ -196,10 +181,6 @@ class TitanBot extends Client {
     }
   }
 
-  /* =========================================================
-     INTERNAL COMMAND REGISTRATION LOGIC
-  ========================================================= */
-
   async internalRegisterCommands(guildId) {
     try {
       if (this.commands.size === 0) {
@@ -225,7 +206,6 @@ class TitanBot extends Client {
         }
       }
 
-      // Bewaak de 100-commando limiet van Discord (maximaal 95 voor de veiligheid)
       if (commandsData.length > 95) {
         console.warn('⚠️ Te veel commando\'s (' + commandsData.length + ')! Afgesneden op 95 stuks.');
         commandsData.splice(95);
@@ -251,10 +231,6 @@ class TitanBot extends Client {
       console.error('❌ [REST] Discord REST fout: ' + error.message);
     }
   }
-
-  /* =========================================================
-     LOAD EVENTS
-  ========================================================= */
 
   async loadEvents() {
     try {
@@ -293,10 +269,6 @@ class TitanBot extends Client {
       console.error('❌ [EVENTS] Fout in loader: ' + err.message);
     }
   }
-
-  /* =========================================================
-     WEB SERVER
-  ========================================================= */
 
   startWebServer() {
     try {
